@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import type { AppState, Distros, LaunchPreview } from '../shared/api.js'
-import type { BranchDetail, BranchOverview, DiscoveredRepo, DiscoveryStatus, Location, OpError, Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, Root, ServiceStatus, Settings } from '../shared/types.js'
+import type { BranchDetail, BranchOverview, DiscoveredRepo, DiscoveryStatus, Location, OpError, Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, Root, ServiceStatus, Settings, StartupState } from '../shared/types.js'
 import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { AutoDiscovery } from '../core/autodiscovery.js'
@@ -13,6 +13,7 @@ import { editorSpec, openInBrowser } from '../core/launchers.js'
 import { displayLocation, normalizePath, parseLocationInput, sameLocation, wslUncPath } from '../core/paths.js'
 import { ServiceManager } from '../core/processes.js'
 import { draftProfile, fingerprint, isTrusted, planLaunch, readRuntimeFile, serviceKey, type FileReader, type Launch } from '../core/profiles.js'
+import { reconcile, Startup } from '../core/startup.js'
 import { newId, Store } from '../core/store.js'
 import * as v from '../core/validate.js'
 
@@ -22,6 +23,8 @@ export type Host = {
   openPath(path: string): Promise<string> // '' on success, an error message otherwise (Electron's shell.openPath contract)
   openExternal(url: string): Promise<void>
   version: string
+  /** Called after settings are saved or corrected (main.ts updates the tray). */
+  settingsChanged?(settings: Settings): void
 }
 
 const ok = <T>(value: T): Result<T> => ({ ok: true, value })
@@ -39,16 +42,18 @@ export class Backend {
   constructor(
     readonly store: Store,
     private readonly host: Host,
-    readonly opts: { os?: HostOs; git?: Git; services?: ServiceManager; readFile?: FileReader; discovery?: AutoDiscovery; home?: string } = {},
+    readonly opts: { os?: HostOs; git?: Git; services?: ServiceManager; readFile?: FileReader; discovery?: AutoDiscovery; home?: string; startup?: Startup } = {},
   ) {
     this.services = opts.services ?? new ServiceManager({ os: opts.os })
     this.inspector = new BranchInspector()
     // GITMANAGER_HOME points discovery at another home folder (tests, or a user who keeps code elsewhere).
     this.discovery = opts.discovery ?? new AutoDiscovery(store, { os: opts.os ?? hostOs(), home: opts.home ?? process.env.GITMANAGER_HOME ?? homedir() })
+    this.startup = opts.startup ?? new Startup(null, { platform: process.platform, packaged: false, execPath: process.execPath })
   }
 
   readonly inspector: BranchInspector
   readonly discovery: AutoDiscovery
+  readonly startup: Startup
 
   private get os() { return this.opts.os ?? hostOs() }
   private get git() { return this.opts.git ?? (this.opts.git = new Git()) }
@@ -384,10 +389,34 @@ export class Backend {
     return ok(undefined)
   }
 
+  /**
+   * Writes or removes the Windows startup entry when the switch differs from what Windows will do, then stores the
+   * settings with the switch as Windows reports it afterwards.
+   */
   async saveSettings(raw: unknown): Promise<Result<Settings>> {
-    const s = v.settings(raw)
+    let s = v.settings(raw)
+    const before = this.startup.state()
+    if (before.supported && s.launchAtStartup !== before.active) {
+      try { s = reconcile(s, this.startup.set(s.launchAtStartup)) } catch (e) {
+        return err('STARTUP', 'Windows did not accept the change to the startup entry.', (e as Error).message)
+      }
+    } else if (!before.supported) s = { ...s, launchAtStartup: false }
     this.store.data.settings = s
     this.store.save()
+    this.host.settingsChanged?.(s)
     return ok(s)
+  }
+
+  /** The startup entry as Windows sees it now. A change made outside GitManager (Task Manager) corrects the stored switch. */
+  async startupState(): Promise<StartupState> {
+    const st = this.startup.state()
+    const cur = this.store.data.settings
+    const next = reconcile(cur, st)
+    if (next !== cur) {
+      this.store.data.settings = next
+      this.store.save()
+      this.host.settingsChanged?.(next)
+    }
+    return st
   }
 }

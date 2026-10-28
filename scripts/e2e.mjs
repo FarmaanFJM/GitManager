@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import electronPath from 'electron'
 import { _electron } from 'playwright'
 import { buildFixture, buildHome, commitFile, git } from './e2e/fixture.mjs'
+import { titlebarProblems, titlebarReport } from './e2e/window.mjs'
 import { runSummaChecks } from './summa-ui/checks.mjs'
 
 const args = process.argv.slice(2)
@@ -39,14 +40,24 @@ function chromeLauncher() {
 }
 
 let app, page
-async function launch() {
-  app = await _electron.launch({ executablePath: electronPath, args: ['.', '--no-sandbox'], env: { ...process.env, GITMANAGER_DATA_DIR: dataDir, GITMANAGER_HOME: homeDir } })
-  app.process().stderr.on('data', d => { const t = d.toString(); if (!/dbus|Debugger|debugging|Picked up/i.test(t)) process.stderr.write('[app] ' + t) })
+// The Windows title bar layout (window controls overlay) is turned on here too, so the scenario runs against it.
+// GITMANAGER_TEST_HOOKS exposes a read-only view of the tray icon to app.evaluate (main process only).
+const appEnv = { ...process.env, GITMANAGER_DATA_DIR: dataDir, GITMANAGER_HOME: homeDir, GITMANAGER_TITLEBAR: 'overlay', GITMANAGER_TEST_HOOKS: '1' }
+async function launch(extra = []) {
+  app = await _electron.launch({ executablePath: electronPath, args: ['.', '--no-sandbox', ...extra], env: appEnv })
+  app.process().stderr.on('data', d => { const t = d.toString(); if (!/dbus|Debugger|debugging|Picked up|StatusNotifier|libappindicator/i.test(t)) process.stderr.write('[app] ' + t) })
   page = await app.firstWindow({ timeout: 30000 })
   page.on('pageerror', e => console.log('[pageerror]', e.message))
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1320, 860))
   await page.waitForSelector('.gm-side')
   await page.waitForTimeout(400)
+}
+const winState = () => app.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; return { visible: w.isVisible(), minimized: w.isMinimized(), focused: w.isFocused() } })
+const trayState = () => app.evaluate(() => globalThis.__gitmanager.tray())
+/** The whole window as the X server shows it, caption buttons included (page screenshots hold only the page). Needs ImageMagick. */
+const windowShot = async (name) => {
+  const b = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds())
+  try { execFileSync('import', ['-window', 'root', '-crop', `${b.width}x${b.height}+${b.x}+${b.y}`, join(OUT, `${name}.png`)]); return true } catch { await shot(name); return false }
 }
 async function closeApp() {
   const proc = app.process()
@@ -301,6 +312,65 @@ async function main() {
   check(git(fx.local, 'rev-parse', 'HEAD') === head && git(fx.local, 'status', '--porcelain') === tree && !existsSync(join(fx.local, 'remote.txt')) && git(fx.local, 'stash', 'list') === '',
     'Unsafe pull on a diverged branch refused, repository unchanged')
 
+  // 14. Title bar: Windows' caption buttons on the main panel's header, one drag strip, no control inside it draggable
+  const tb = await titlebarReport(page)
+  const tbProblems = titlebarProblems(tb)
+  check(!tbProblems.length, 'Title bar: overlay active, drag strip clear of controls and caption buttons', tbProblems.join('; ') || `strip ${tb.strip.width}x${tb.strip.height}, caption buttons ${tb.captionWidth}px`)
+  const headerBg = await page.evaluate(() => getComputedStyle(document.querySelector('.shell-main')).backgroundColor)
+  check(headerBg === 'rgb(27, 28, 28)', 'Title bar: the caption buttons share the panel surface #1B1C1C', headerBg)
+  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('heading', { name: 'Settings' }).waitFor()
+  const tbSettings = titlebarProblems(await titlebarReport(page))
+  await page.getByRole('button', { name: 'Add folder' }).click()
+  const tbDialog = titlebarProblems(await titlebarReport(page))
+  await page.keyboard.press('Escape')
+  check(!tbSettings.length && !tbDialog.length, 'Title bar: Settings and an open dialog keep controls out of the drag strip', [...tbSettings, ...tbDialog].join('; '))
+  const composed = await windowShot('16-title-bar')
+  console.log(`     window screenshot ${composed ? 'with' : 'without'} the caption buttons`)
+
+  // 15. Minimize to system tray (Settings > General), then the tray icon brings the window back
+  check(!(await trayState()), 'Tray: no icon while Minimize to system tray is off')
+  await page.getByRole('switch', { name: 'Minimize to system tray' }).click()
+  await page.getByRole('button', { name: 'Save' }).click()
+  await page.getByRole('button', { name: 'Save' }).and(page.locator(':disabled')).waitFor()
+  await shot('17-settings-general')
+  const tray = await trayState()
+  check(tray && tray.items.join('|') === 'Open GitManager|Quit GitManager', 'Tray: icon with Open GitManager and Quit GitManager', JSON.stringify(tray))
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].emit('minimize')) // Xvfb has no window manager to minimize
+  check(await waitFor(async () => !(await winState()).visible, 5000, 100), 'Tray: minimizing hides the window in the tray')
+  await app.evaluate(() => globalThis.__gitmanager.clickTray())
+  check(await waitFor(async () => (await winState()).visible, 5000, 100), 'Tray: clicking the icon restores the window')
+  await closeApp()
+
+  // 16. Launched by the startup entry with Start minimized: waits in the tray, starts nothing, changes nothing
+  const cfgFile = join(dataDir, 'gitmanager.json')
+  const cfg = JSON.parse(readFileSync(cfgFile, 'utf8'))
+  cfg.settings.startMinimized = true; cfg.settings.minimizeToTray = false
+  writeFileSync(cfgFile, JSON.stringify(cfg))
+  const loginHead = git(fx.local, 'rev-parse', 'HEAD'), branchBefore = git(fx.local, 'rev-parse', '--abbrev-ref', 'HEAD'), treeBefore = git(fx.local, 'status', '--porcelain')
+  await launch(['--launched-at-login'])
+  await page.waitForTimeout(1500)
+  const hiddenState = await winState()
+  check(!hiddenState.visible && !!(await trayState()), 'Startup: launched at sign-in with Start minimized, the window waits behind the tray icon', JSON.stringify(hiddenState))
+  const running = await page.evaluate(async () => (await window.gitmanager.state()).services.filter(x => x.pid !== null).length)
+  check(running === 0 && git(fx.local, 'rev-parse', 'HEAD') === loginHead && git(fx.local, 'rev-parse', '--abbrev-ref', 'HEAD') === branchBefore && git(fx.local, 'status', '--porcelain') === treeBefore,
+    'Startup: no services started, nothing pulled or switched')
+
+  // 17. A second launch does not start another GitManager: it brings the running window forward
+  const second = spawnSync(electronPath, ['.', '--no-sandbox'], { env: appEnv, timeout: 20000 })
+  check(second.status === 0 && await waitFor(async () => (await winState()).visible, 5000, 100), 'Single instance: a second launch exits and shows the running window', `exit ${second.status}`)
+  check(await waitFor(async () => !(await trayState()), 3000, 100), 'Tray: the icon goes away with the window shown (Minimize to system tray is off)')
+
+  // 18. Quit from the tray ends GitManager; a manual launch opens the window even with Start minimized on
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide())
+  check(await waitFor(async () => !!(await trayState()), 3000, 100), 'Tray: a hidden window always has the tray icon')
+  const proc = app.process()
+  const gone = new Promise(r => proc.once('exit', r))
+  await app.evaluate(() => globalThis.__gitmanager.clickTrayItem('Quit GitManager')).catch(() => {})
+  check(await Promise.race([gone.then(() => true), new Promise(r => setTimeout(() => r(false), 15000))]), 'Tray: Quit GitManager ends the application')
+  app = null
+  await launch()
+  check((await winState()).visible, 'Startup: a manual launch opens the window although Start minimized is on')
   await closeApp()
 }
 

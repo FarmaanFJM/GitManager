@@ -136,5 +136,8 @@ export function settings(v: unknown): Settings {
     chromePath: str(v.chromePath ?? '', 'Chrome path', { max: 1024 }).trim(),
     discoveryDepth: int(v.discoveryDepth ?? 3, 'Search depth', 1, 6),
     autoDiscover: v.autoDiscover === undefined ? true : v.autoDiscover === true,
+    launchAtStartup: v.launchAtStartup === true,
+    startMinimized: v.startMinimized === true,
+    minimizeToTray: v.minimizeToTray === true,
   }
 }

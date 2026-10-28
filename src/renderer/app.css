@@ -209,9 +209,35 @@
 /* ---------- discovery ---------- */
 .gm-discovery { display: flex; align-items: center; gap: 8px; padding: 8px 10px 4px; font-size: var(--fs-sm); color: var(--text-2); }
 .gm-discovery .sm-spinner { width: 12px; height: 12px; }
-.gm-switch-row { display: flex; align-items: center; gap: 12px; min-height: 32px; }
+.gm-switch-field { display: flex; flex-direction: column; gap: 2px; }
+.gm-switch-row { display: flex; align-items: center; gap: 12px; min-height: 32px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.gm-switch-row:disabled { opacity: 0.45; }
+.gm-form-head-first { margin-top: 0; }
 .gm-ignored-row { display: flex; align-items: center; gap: 12px; min-height: 40px; margin: 0 -12px; padding: 0 4px 0 12px; border-radius: var(--r); }
 .gm-ignored-row:hover { background: var(--s2); }
 
 /* GitManager's Summa logo in Summa-UI's brand row (replaces .brand-mark; same 22-24px footprint) */
 .gm-brand-logo { display: block; flex: none; width: 24px; height: 24px; margin: -1px -1px -1px -2px; }
+
+/* ---------- title bar (Windows window controls overlay, see src/main/chrome.ts) ----------
+   No separate bar: the top 52px of the window are the sidebar's brand row on the page (--s0) and the main panel's
+   header on --s1, with Windows' own caption buttons at the header's right end on the same --s1. The panel reaches the
+   top and right window edges (rounded top-left corner, the Windows 11 content layer), so the buttons sit on the surface
+   they share a colour with. One transparent strip marks the title bar as draggable; every control in it is excluded,
+   so clicks on controls never start a window drag. */
+.gm-titlebar { display: none; }
+:root[data-titlebar="overlay"] {
+  --gm-caption-w: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+}
+:root[data-titlebar="overlay"] .gm-titlebar {
+  display: block; position: fixed; z-index: 0; top: 0; left: env(titlebar-area-x, 0px);
+  width: env(titlebar-area-width, 100%); height: env(titlebar-area-height, 52px);
+  -webkit-app-region: drag; app-region: drag; pointer-events: none;
+}
+:root[data-titlebar="overlay"] :is(button, input, select, textarea, a[href], label, summary, [role="button"], [role="tab"],
+  [role="switch"], [role="combobox"], [role="menu"], [role="listbox"], [role="dialog"], [role="alertdialog"],
+  [tabindex]:not([tabindex="-1"]), .popover, .backdrop, .sm-backdrop) {
+  -webkit-app-region: no-drag; app-region: no-drag;
+}
+:root[data-titlebar="overlay"] .shell-main { margin: 0; border-radius: var(--r-xl) 0 0 0; }
+:root[data-titlebar="overlay"] .gm-top { padding-right: calc(16px + var(--gm-caption-w)); }

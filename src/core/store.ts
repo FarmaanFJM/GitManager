@@ -19,7 +19,7 @@ export type Data = {
   discovery: { lastRunAt: string | null }
 }
 
-export const DEFAULT_SETTINGS: Settings = { editor: 'code', chromePath: '', discoveryDepth: 3, autoDiscover: true }
+export const DEFAULT_SETTINGS: Settings = { editor: 'code', chromePath: '', discoveryDepth: 3, autoDiscover: true, launchAtStartup: false, startMinimized: false, minimizeToTray: false }
 const empty = (): Data => ({ schemaVersion: 1, repos: [], roots: [], profiles: [], settings: { ...DEFAULT_SETTINGS }, ui: { selectedRepoId: null, selectedProfile: {} }, ignored: [], compareBase: {}, discovery: { lastRunAt: null } })
 
 export const newId = () => randomUUID().replace(/-/g, '').slice(0, 16)

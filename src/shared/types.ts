@@ -97,6 +97,24 @@ export type Settings = {
   discoveryDepth: number
   /** Scan common development folders and WSL home folders at every launch. */
   autoDiscover: boolean
+  /** Windows startup entry (opt-in). Mirrors what Windows will do; see src/core/startup.ts. */
+  launchAtStartup: boolean
+  /** When started by the startup entry, wait in the notification area instead of opening the window. */
+  startMinimized: boolean
+  /** Minimizing hides the window in the notification area; the tray icon stays while GitManager runs. */
+  minimizeToTray: boolean
+}
+
+/** What Windows will do at the next sign-in. */
+export type StartupState = {
+  supported: boolean
+  /** Why the startup entry cannot be managed in this copy (not Windows, or a development build). */
+  reason: string | null
+  active: boolean
+  /** The entry exists but is turned off in Task Manager or Windows Settings (Startup apps). */
+  disabledByWindows: boolean
+  /** The command Windows runs, for display. */
+  command: string | null
 }
 
 export type ServiceState = 'stopped' | 'starting' | 'running' | 'ready' | 'stopping' | 'failed'

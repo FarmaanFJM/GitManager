@@ -2,7 +2,7 @@
 // Every call is a request to the main process, which validates the arguments. Type-only module.
 import type {
   Branch, BranchDetail, BranchOverview, Commit, Comparison, DiscoveredRepo, DiscoveryStatus, IgnoredRepo, Location, LogBatch, LogLine,
-  Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, Root, ServiceStatus, Settings,
+  Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, Root, ServiceStatus, Settings, StartupState,
 } from './types.js'
 
 export type AppState = {
@@ -73,6 +73,7 @@ export interface GitManagerApi {
   clearLogs(key: string): Promise<void>
 
   saveSettings(settings: Settings): Promise<Result<Settings>>
+  startupState(): Promise<StartupState>
 
   discoveryStatus(): Promise<DiscoveryStatus>
   rescan(scope: 'common' | 'deep'): Promise<Result<DiscoveryStatus>>
@@ -90,6 +91,6 @@ export const API_METHODS = [
   'platform', 'state', 'pickFolder', 'addRepo', 'removeRepo', 'selectRepo', 'status', 'checkRemote', 'fetch', 'pull', 'branches',
   'switchBranch', 'trackBranch', 'log', 'compare', 'openFolder', 'openEditor', 'openUrl', 'wslDistros', 'addRoot', 'removeRoot',
   'scanRoot', 'addRepos', 'draftProfile', 'saveProfile', 'removeProfile', 'selectProfile', 'previewLaunch', 'trustProfile',
-  'startServices', 'stopServices', 'restartService', 'logs', 'clearLogs', 'saveSettings',
+  'startServices', 'stopServices', 'restartService', 'logs', 'clearLogs', 'saveSettings', 'startupState',
   'discoveryStatus', 'rescan', 'unignoreRepo', 'branchOverview', 'branchDetail', 'setCompareBase',
 ] as const satisfies readonly Exclude<keyof GitManagerApi, 'on'>[]
