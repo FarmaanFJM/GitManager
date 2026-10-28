@@ -110,3 +110,6 @@ Recorded with `npm run feedback` in the summa-ui repository (branch `claude/sere
 | FB-0006 | guidance-ambiguity | `preset.dropdown` forbids a search field for 7 or fewer options, but its creatable variant needs a text field to type the new option. |
 | FB-0007 | guidance-gap | `preset.dropdown` and the React `Dropdown` have no grouped variant (section headings), which a branch picker and many pickers need. |
 | FB-0008 | guidance-ambiguity | The filled `stop` icon (Lucide `square`) in a 28 px icon button next to list rows reads like a filled checkbox. Low confidence; the owner may judge it not a problem. |
+| FB-0009 | guidance-gap | The vendored bundle fails `verify-vendored.mjs` on Windows checkouts (Git for Windows converts it to CRLF). The integration contract does not mention line endings; GitManager fixed it with `.gitattributes`. |
+
+The registry `feedback/applications.json` only accepts applications with a path inside summa-ui, so GitManager is registered as an external, non-regression application whose path is a copy of its usage record (`feedback/external/gitmanager.usage.json`). The owner may prefer a dedicated field for external applications.
