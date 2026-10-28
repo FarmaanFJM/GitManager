@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "application": {
+    "name": "gitmanager",
+    "repository": "https://github.com/FarmaanFJM/GitManager"
+  },
+  "guidance": {
+    "name": "summa-ui-guidance",
+    "version": "0.1.0",
+    "bundleDigest": "5ef73215334c313089cb3cd87f6f78f65eef48f67dfdc5d53bd84fedad408cc7",
+    "tag": "guidance-v0.1.0",
+    "source": "vendored"
+  },
+  "recordedAt": "2026-10-28T15:39:21Z"
+}

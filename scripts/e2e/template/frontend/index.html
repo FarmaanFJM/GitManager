@@ -1,0 +1,7 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>CaissaTrainer</title></head>
+<body><h1>CaissaTrainer</h1><p id="api">checking backend</p>
+<script type="module">
+fetch('/api/health').then(r => r.json()).then(j => { document.getElementById('api').textContent = 'backend ' + j.status; document.title = 'CaissaTrainer · backend ' + j.status })
+  .catch(() => { document.title = 'CaissaTrainer · backend unreachable' })
+</script></body></html>

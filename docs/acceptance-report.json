@@ -1,0 +1,179 @@
+{
+  "startedAt": "2026-10-28T15:45:17.890Z",
+  "environment": {
+    "platform": "linux",
+    "node": "v22.22.0",
+    "chrome": "Chromium via test launcher"
+  },
+  "steps": [
+    {
+      "step": 1,
+      "name": "Open GitManager: first-run empty state",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 2,
+      "name": "Register an existing repository",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 3,
+      "name": "Current branch shown",
+      "ok": true,
+      "detail": "main"
+    },
+    {
+      "step": 4,
+      "name": "Working tree and sync status shown",
+      "ok": true,
+      "detail": "Clean, Up to date"
+    },
+    {
+      "step": 5,
+      "name": "Remote configured and reachable",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 6,
+      "name": "Uncommitted change detected",
+      "ok": true,
+      "detail": "1 changed"
+    },
+    {
+      "step": 7,
+      "name": "Fetch changes no local branch or file",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 8,
+      "name": "Behind identified",
+      "ok": true,
+      "detail": "2 commits to pull"
+    },
+    {
+      "step": 9,
+      "name": "Incoming commits listed",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 10,
+      "name": "Fast-forward pull",
+      "ok": true,
+      "detail": "HEAD = origin/main, uncommitted notes kept, no stash"
+    },
+    {
+      "step": 11,
+      "name": "Switch branch, local work kept",
+      "ok": true,
+      "detail": "tracking feature/board-themes"
+    },
+    {
+      "step": 12,
+      "name": "Tracking branch created from the remote branch",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 13,
+      "name": "Profile saved and selected",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 14,
+      "name": "Backend shows Starting before it is reachable",
+      "ok": true,
+      "detail": "Starting"
+    },
+    {
+      "step": 15,
+      "name": "Frontend Ready when http://localhost:5173 responds",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 16,
+      "name": "Backend Ready when port 8080 accepts connections",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 17,
+      "name": "Backend log captured (Spring Boot output)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 18,
+      "name": "Frontend log captured (Vite output)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 19,
+      "name": "Open in Chrome: page loaded and reached the backend through the frontend",
+      "ok": true,
+      "detail": "tab title \"CaissaTrainer · backend UP\""
+    },
+    {
+      "step": 20,
+      "name": "Switch while services run requires stopping them first",
+      "ok": true,
+      "detail": "cancelled, branch unchanged"
+    },
+    {
+      "step": 21,
+      "name": "Stop both services: process trees ended, ports freed",
+      "ok": true,
+      "detail": "JVM 15394 gone"
+    },
+    {
+      "step": 22,
+      "name": "Reopen: repository, profile and selection restored",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 23,
+      "name": "Unsafe pull on a diverged branch refused, repository unchanged",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "summaChecks": {
+    "03-behind-after-fetch": {
+      "focusStops": 30,
+      "findings": []
+    },
+    "05-profile-editor": {
+      "focusStops": 30,
+      "findings": []
+    },
+    "08-services-ready": {
+      "focusStops": 30,
+      "findings": [
+        {
+          "checkId": "CHK-012",
+          "status": "needs-human",
+          "target": "body",
+          "evidence": "accent fills 4, area 0.1% of viewport"
+        }
+      ]
+    },
+    "09-settings": {
+      "focusStops": 30,
+      "findings": []
+    },
+    "13-unsafe-pull-refused": {
+      "focusStops": 30,
+      "findings": []
+    }
+  },
+  "result": "passed",
+  "finishedAt": "2026-10-28T15:46:03.004Z"
+}

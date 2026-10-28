@@ -1,0 +1,46 @@
+{
+  "bundle": "summa-ui-guidance",
+  "version": "0.1.0",
+  "channel": "approved",
+  "repo": "FarmaanFJM/summa-ui",
+  "tag": "guidance-v0.1.0",
+  "commit": "bd6d7e1f2c0d375913a61582c966ea311c102575",
+  "bundleDigest": "5ef73215334c313089cb3cd87f6f78f65eef48f67dfdc5d53bd84fedad408cc7",
+  "approvedBy": "FarmaanFJM",
+  "approvedAt": "2026-10-28T10:30:50Z",
+  "vendoredPath": "third_party/summa-ui/guidance",
+  "reference": {
+    "note": "Optional React reference implementation and shared component CSS from the same release commit, copied byte for byte (SUMMA_INTEGRATION.md allows copying; it is not a runtime dependency). Verified by scripts/summa-ui/verify-reference.mjs.",
+    "basePath": "third_party/summa-ui",
+    "files": [
+      {
+        "path": "src/ui/index.tsx",
+        "sha256": "f33e9fade7808cfc1caa5092eec37c5836ff26d18ccd29a06dbfe6e4692697ec"
+      },
+      {
+        "path": "src/ui/popover.tsx",
+        "sha256": "f5383957990090e583ba59f170c56aa2d4ce3a7ae5d7ea3b019af9e281d566f9"
+      },
+      {
+        "path": "src/ui/icons.tsx",
+        "sha256": "4ab111fc38da43519a24b8031fc3687b5149a4137b02c5a34dc110bf97732725"
+      },
+      {
+        "path": "src/presets/Toast.tsx",
+        "sha256": "bc9f9e304af8a9de800ed300dd77df89030921144686faff163c0280e55c722d"
+      },
+      {
+        "path": "src/presets/Confirm.tsx",
+        "sha256": "5a48c57f583edac5ad7b4be62cf527f3ff39bef78a5f7efae3d1ee22dab6d338"
+      },
+      {
+        "path": "src/presets/index.ts",
+        "sha256": "0992e3de31df007567ecdbe70c5736a0d09ccda7bfc59f92566feb414a6a17b5"
+      },
+      {
+        "path": "src/styles/base.css",
+        "sha256": "83fd1d0427485a24681369a6c8677e5a1b3adca94e6a518ebab1f094b9cc68e9"
+      }
+    ]
+  }
+}
