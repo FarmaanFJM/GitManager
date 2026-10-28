@@ -125,7 +125,7 @@ describe('discovery and branch overview through the backend', () => {
     await b.removeRepo(id)
     const s = new Store(cfgFile)
     expect(s.data.ignored).toHaveLength(1)
-    expect(s.isIgnored({ kind: 'native', path: f.local })).toBe(true)
+    expect(s.isIgnored({ kind: 'native', path: realpathSync.native(f.local) })).toBe(true)
   })
 
   it('loads a configuration written before discovery existed, keeping everything', () => {
