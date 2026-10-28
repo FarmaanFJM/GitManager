@@ -185,8 +185,11 @@ async function main() {
   await page.getByRole('switch', { name: 'Minimize to system tray' }).click()
   await page.getByRole('button', { name: 'Save' }).click()
   await page.getByRole('button', { name: 'Save' }).and(page.locator(':disabled')).waitFor()
-  const approved = regValue(APPROVED, 'GitManager') ?? ''
-  check(/REG_BINARY\s+02/i.test(approved) && regValue(RUN, 'GitManager'), 'Startup: switching it on again approves the entry', approved)
+  // Approved means no StartupApproved record (Electron removes it) or one starting with 02; 03 is Task Manager's "disabled"
+  const approved = regValue(APPROVED, 'GitManager')
+  const reapproved = (approved === null || /REG_BINARY\s+02/i.test(approved)) && !!regValue(RUN, 'GitManager')
+  check(reapproved && await page.getByRole('switch', { name: 'Launch at Windows startup' }).getAttribute('aria-checked') === 'true' && !(await page.getByText('Turned off in Windows').count()),
+    'Startup: switching it on again approves the entry', approved ?? 'approval record removed')
 
   // 8. Minimize to system tray, with the real minimize button; the tray icon brings the window back
   check((await tray())?.items.join('|') === 'Open GitManager|Quit GitManager', 'Tray: GitManager icon with Open GitManager and Quit GitManager')

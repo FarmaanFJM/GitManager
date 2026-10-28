@@ -85,10 +85,6 @@ jobs:
       - name: Install the installer and test the installed build (title bar, startup entry, tray, single instance, uninstall)
         shell: bash
         run: node scripts/e2e-windows.mjs "$(ls release/GitManager-*-x64.exe | head -1)"
-      - name: Title bar captures (review)
-        if: always()
-        shell: bash
-        run: for f in e2e-output-windows/w03-settings-general.png; do [ -f "$f" ] || continue; echo "== $f"; base64 -w0 "$f"; echo; done
       - uses: actions/upload-artifact@v5
         if: always()
         with:
