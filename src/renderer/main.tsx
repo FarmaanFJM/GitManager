@@ -10,8 +10,16 @@ import { ConfirmProvider, ToastProvider } from '../../third_party/summa-ui/src/p
 import { App } from './App'
 
 // Windows (src/main/chrome.ts): the page draws the title bar area around Windows' caption buttons (app.css, "title bar").
-const wco = (navigator as Navigator & { windowControlsOverlay?: { visible: boolean } }).windowControlsOverlay
-if (wco?.visible) document.documentElement.dataset.titlebar = 'overlay'
+// The window loads hidden (until ready, or in the tray when started minimized), and the overlay only reports itself
+// visible once the window is shown, so the layout follows its geometrychange event rather than a check at load.
+const wco = (navigator as Navigator & { windowControlsOverlay?: EventTarget & { visible: boolean } }).windowControlsOverlay
+const syncTitlebar = () => {
+  if (wco?.visible) document.documentElement.dataset.titlebar = 'overlay'
+  else delete document.documentElement.dataset.titlebar
+}
+syncTitlebar()
+wco?.addEventListener('geometrychange', syncTitlebar)
+document.addEventListener('visibilitychange', syncTitlebar)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

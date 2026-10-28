@@ -1,5 +1,5 @@
 {
-  "startedAt": "2026-10-28T17:22:14.830Z",
+  "startedAt": "2026-10-28T18:04:54.727Z",
   "environment": {
     "platform": "linux",
     "node": "v22.22.0",
@@ -178,7 +178,7 @@
       "step": 29,
       "name": "Stop both services: process trees ended, ports freed",
       "ok": true,
-      "detail": "JVM 374 gone"
+      "detail": "JVM 6277 gone"
     },
     {
       "step": 30,
@@ -272,18 +272,24 @@
     },
     {
       "step": 45,
-      "name": "Tray: a hidden window always has the tray icon",
+      "name": "Title bar: a window that started hidden gets the title bar layout once shown",
       "ok": true,
       "detail": ""
     },
     {
       "step": 46,
-      "name": "Tray: Quit GitManager ends the application",
+      "name": "Tray: a hidden window always has the tray icon",
       "ok": true,
       "detail": ""
     },
     {
       "step": 47,
+      "name": "Tray: Quit GitManager ends the application",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 48,
       "name": "Startup: a manual launch opens the window although Start minimized is on",
       "ok": true,
       "detail": ""
@@ -316,5 +322,5 @@
     }
   },
   "result": "passed",
-  "finishedAt": "2026-10-28T17:23:16.167Z"
+  "finishedAt": "2026-10-28T18:05:54.204Z"
 }

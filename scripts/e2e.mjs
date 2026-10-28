@@ -360,6 +360,9 @@ async function main() {
   const second = spawnSync(electronPath, ['.', '--no-sandbox'], { env: appEnv, timeout: 20000 })
   check(second.status === 0 && await waitFor(async () => (await winState()).visible, 5000, 100), 'Single instance: a second launch exits and shows the running window', `exit ${second.status}`)
   check(await waitFor(async () => !(await trayState()), 3000, 100), 'Tray: the icon goes away with the window shown (Minimize to system tray is off)')
+  await page.waitForTimeout(300)
+  const shownLater = titlebarProblems(await titlebarReport(page))
+  check(!shownLater.length, 'Title bar: a window that started hidden gets the title bar layout once shown', shownLater.join('; '))
 
   // 18. Quit from the tray ends GitManager; a manual launch opens the window even with Start minimized on
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide())
