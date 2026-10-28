@@ -1,0 +1,5 @@
+# Keep LF everywhere, including Windows checkouts with core.autocrlf=true. The vendored Summa-UI files are verified
+# byte for byte against the sha256 values in summa-ui.lock.json, so they must never be converted.
+* text=auto eol=lf
+third_party/** -text
+*.png binary
