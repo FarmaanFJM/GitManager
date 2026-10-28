@@ -156,7 +156,8 @@ async function main() {
   await page.bringToFront(); await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].focus())
   await mouse('click', 150, 26) // focus through Windows, so the shortcut goes to this window
   ps('-Action', 'snapleft')
-  const snapped = await waitFor(async () => { const w = await win(); return w.bounds.x <= w.work.x + 8 && Math.abs(w.bounds.width - w.work.width / 2) <= 16 }, 5000)
+  // Left half at full height; never narrower than GitManager's minimum width (920), which a 1024 px screen's half is
+  const snapped = await waitFor(async () => { const w = await win(); return w.bounds.x <= w.work.x + 8 && Math.abs(w.bounds.height - w.work.height) <= 16 && Math.abs(w.bounds.width - Math.max(w.work.width / 2, 920)) <= 16 }, 5000)
   const sw = await win()
   check(snapped, 'Window: Win+Left snaps it to the left half (Windows Snap)', `${JSON.stringify(sw.bounds)} in ${JSON.stringify(sw.work)}`)
 
