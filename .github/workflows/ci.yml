@@ -88,7 +88,7 @@ jobs:
       - name: Title bar captures (review)
         if: always()
         shell: bash
-        run: for f in e2e-output-windows/*-titlebar.png e2e-output-windows/w03-settings-general.png; do [ -f "$f" ] || continue; echo "== $f"; base64 -w0 "$f"; echo; done
+        run: for f in e2e-output-windows/w03-settings-general.png; do [ -f "$f" ] || continue; echo "== $f"; base64 -w0 "$f"; echo; done
       - uses: actions/upload-artifact@v5
         if: always()
         with:

@@ -141,8 +141,8 @@ async function main() {
   // Windows starts the move only after its drag threshold, so a few pixels of the gesture are not applied
   check(Math.abs(moved.x - before.x - 120) <= 16 && Math.abs(moved.y - before.y - 70) <= 16 && moved.width === before.width, 'Window: dragging the title bar moves it', `${before.x},${before.y} -> ${moved.x},${moved.y}`)
   // The resize edge is just inside the visible frame or in Windows' invisible border just outside it; try both.
-  // Back to the start position first: the drag left the right edge beyond a 1024 px wide screen.
-  await setBounds({ x: 40, y: 30, width: 960, height: 660 }); await sleep(400)
+  // Minimum size near the top left first, so the corner and the drag stay on a 1024 x 768 runner screen.
+  await setBounds({ x: 20, y: 20, width: 920, height: 600 }); await sleep(400)
   const sized = (await win()).bounds
   let resized = sized
   for (const d of [-3, 4]) {
