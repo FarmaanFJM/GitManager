@@ -10,6 +10,10 @@
 .gm-repo-search { margin: 0 2px 4px; }
 .gm-side-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 2px 4px 10px; }
 .gm-repo-list { gap: 2px; padding-top: 2px; }
+/* environment groups (Windows, each WSL distribution): Summa-UI's eyebrow section heading, as in the Atlas reference sidebar */
+.gm-repo-group { display: flex; flex-direction: column; gap: 2px; }
+.gm-repo-group > h2 { padding: 14px 10px 4px; }
+.gm-repo-group:first-child > h2 { padding-top: 6px; }
 .gm-nav-meta { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; color: var(--text-3); font-size: var(--fs-sm); flex: none; }
 .nav-item[aria-current="true"] .gm-nav-meta { color: var(--text-2); }
 /* Emerald for a meaningful state only (P15): services from this repository are running. */
