@@ -13,6 +13,7 @@ src/
     git/branches.ts  branch overview: default branch detection, ahead/behind for every ref, branch details (read-only)
     discovery.ts   bounded repository search (native file walk, `find` inside WSL), worktree/submodule recognition, common locations
     autodiscovery.ts  background discovery at launch and on request: registers new repositories, skips removed ones
+    startup.ts     Windows startup entry (login items), the --launched-at-login argument, start minimized and tray rules
     profiles.ts    trust fingerprint, env files, launch planning
     processes.ts   ServiceManager: spawn, readiness, logs, graceful tree termination
     readiness.ts   HTTP and TCP probes
@@ -24,7 +25,9 @@ src/
     backend.ts     application logic behind the API; validates arguments, returns Results
     ipc.ts         one ipcMain handler per API method, sender check, error mapping, event forwarding
     preload.ts     contextBridge: exposes exactly the API methods, nothing else
-    main.ts        window, security settings, quit handling
+    chrome.ts      title bar (window controls overlay) colours and height, brand icon files
+    tray.ts        notification area icon with Open and Quit
+    main.ts        window, single instance, tray, security settings, quit handling
   renderer/    React interface built from Summa-UI (see SUMMA_UI_ADOPTION.md)
 third_party/summa-ui/   pinned Summa-UI guidance bundle and reference implementation (verified, unmodified)
 ```
@@ -118,3 +121,23 @@ Deduplication uses `locationKey`: Windows paths compare case-insensitively with 
 5. **Freshness.** The modification time of `FETCH_HEAD` tells the interface when remote-tracking refs were last updated.
 
 Details for one ref use `git log <base>..<ref>`, `git log <ref>..<base>`, `git merge-base` and `git diff --name-status <base>...<ref>`. Refs are validated as `refs/heads/...` or `refs/remotes/...` before they reach Git. Switching from the details reuses the existing safe switch and its running-services guard.
+
+## Title bar
+
+On Windows the window has no separate title bar. `BrowserWindow` uses `titleBarStyle: 'hidden'` with a `titleBarOverlay` (`src/main/chrome.ts`): Windows keeps drawing its own caption buttons (minimize, maximize with Snap layouts on hover, close) in the top-right corner, on `#1B1C1C` (Summa-UI `--s1`) with `--text-2` symbols, 52 px tall like the header row. The page then forms the title bar itself:
+
+- The main panel reaches the window's top and right edges (only its top-left corner is rounded), so the caption buttons sit on the panel surface they share a colour with, and its header row (repository name, branch picker, actions) is the title bar's middle. `env(titlebar-area-x/width/height)` gives the area beside the buttons; headers keep their actions out of the buttons' width.
+- The sidebar's brand row (logo and name) is the title bar's left part, on the page surface `#141515`.
+- One transparent, fixed strip covers the title bar area with `app-region: drag`. Every interactive element (buttons, inputs, tabs, switches, links, popovers, dialog backdrops) is `app-region: no-drag`, so a click on a control never starts a window drag; the acceptance scenarios check that no control in the strip is draggable and none sits under the caption buttons.
+
+Moving, double-click to maximize, resizing from the edges and Snap are Windows' own behaviour on that region, not reimplemented. On macOS and Linux the native frame stays (`GITMANAGER_TITLEBAR=overlay` turns the overlay on for the acceptance scenario).
+
+## Startup and tray
+
+Three settings, all off by default (Settings, General):
+
+- **Launch at Windows startup** writes the entry with `app.setLoginItemSettings({ openAtLogin, path: process.execPath, args: ['--launched-at-login'], name: 'GitManager', enabled })`: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\GitManager` = `"<install folder>\GitManager.exe" --launched-at-login`. It is refused in a development build (`app.isPackaged` false), so an entry never points at `electron.exe`. The switch shows what Windows will do (`app.getLoginItemSettings`, including Task Manager's StartupApproved state): an entry turned off in Task Manager reads as off, with the reason, and switching it on again re-approves it. The stored setting is corrected to match at every launch and whenever Settings opens. The uninstaller deletes the entry and its approval record (`build/installer.nsh`), except when an update runs the old uninstaller.
+- **Start minimized** applies only when the process was started with `--launched-at-login`; a manual launch always opens the window. The window is created hidden and the tray icon shown.
+- **Minimize to system tray** keeps a tray icon (the supplied ICO) while GitManager runs; minimizing hides the window from the taskbar. Clicking the icon restores the window; its menu has Open GitManager and Quit GitManager. Closing the window still quits (asking first when services run), and the tray icon is always present while the window is hidden, so a hidden GitManager can always be reached.
+
+A launch at sign-in differs from any other launch only by the hidden window: no service is started, nothing is pulled or switched; automatic discovery runs in the background as usual. `app.requestSingleInstanceLock()` keeps one GitManager per user: a second launch (shortcut, startup entry) exits and brings the running window forward, from the tray if needed.

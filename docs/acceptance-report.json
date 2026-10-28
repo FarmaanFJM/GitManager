@@ -1,5 +1,5 @@
 {
-  "startedAt": "2026-10-28T16:42:25.796Z",
+  "startedAt": "2026-10-28T17:22:14.830Z",
   "environment": {
     "platform": "linux",
     "node": "v22.22.0",
@@ -178,7 +178,7 @@
       "step": 29,
       "name": "Stop both services: process trees ended, ports freed",
       "ok": true,
-      "detail": "JVM 13621 gone"
+      "detail": "JVM 374 gone"
     },
     {
       "step": 30,
@@ -201,6 +201,90 @@
     {
       "step": 33,
       "name": "Unsafe pull on a diverged branch refused, repository unchanged",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 34,
+      "name": "Title bar: overlay active, drag strip clear of controls and caption buttons",
+      "ok": true,
+      "detail": "strip 1207x52, caption buttons 113px"
+    },
+    {
+      "step": 35,
+      "name": "Title bar: the caption buttons share the panel surface #1B1C1C",
+      "ok": true,
+      "detail": "rgb(27, 28, 28)"
+    },
+    {
+      "step": 36,
+      "name": "Title bar: Settings and an open dialog keep controls out of the drag strip",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 37,
+      "name": "Tray: no icon while Minimize to system tray is off",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 38,
+      "name": "Tray: icon with Open GitManager and Quit GitManager",
+      "ok": true,
+      "detail": "{\"tooltip\":\"GitManager\",\"items\":[\"Open GitManager\",\"Quit GitManager\"]}"
+    },
+    {
+      "step": 39,
+      "name": "Tray: minimizing hides the window in the tray",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 40,
+      "name": "Tray: clicking the icon restores the window",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 41,
+      "name": "Startup: launched at sign-in with Start minimized, the window waits behind the tray icon",
+      "ok": true,
+      "detail": "{\"visible\":false,\"minimized\":false,\"focused\":false}"
+    },
+    {
+      "step": 42,
+      "name": "Startup: no services started, nothing pulled or switched",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 43,
+      "name": "Single instance: a second launch exits and shows the running window",
+      "ok": true,
+      "detail": "exit 0"
+    },
+    {
+      "step": 44,
+      "name": "Tray: the icon goes away with the window shown (Minimize to system tray is off)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 45,
+      "name": "Tray: a hidden window always has the tray icon",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 46,
+      "name": "Tray: Quit GitManager ends the application",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 47,
+      "name": "Startup: a manual launch opens the window although Start minimized is on",
       "ok": true,
       "detail": ""
     }
@@ -232,5 +316,5 @@
     }
   },
   "result": "passed",
-  "finishedAt": "2026-10-28T16:43:23.350Z"
+  "finishedAt": "2026-10-28T17:23:16.167Z"
 }

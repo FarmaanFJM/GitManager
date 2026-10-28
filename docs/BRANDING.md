@@ -36,6 +36,8 @@ The supplied files are used unchanged. They were not regenerated or redrawn.
 | Installer and uninstaller | `nsis.installerIcon`, `uninstallerIcon`, `installerHeaderIcon` |
 | Desktop and Start menu shortcuts | created by the installer (`createDesktopShortcut`, `createStartMenuShortcut`), which point at the executable and so show its icon |
 | Taskbar and title bar | the executable's icon, and `BrowserWindow({ icon })` set to the ICO on Windows (the 256 PNG elsewhere) |
+| Notification area | the tray icon (Minimize to system tray, Start minimized) uses the ICO on Windows, so Windows picks the 16, 24 or 32 px frame for the display scale; the 32 px PNG elsewhere |
+| Title bar | there is no separate title bar on Windows: the sidebar's brand row (logo and name) is its left part, next to Windows' caption buttons on the charcoal panel (see ARCHITECTURE.md, Title bar) |
 | In the app | the sidebar's brand row (Summa-UI's `.brand`) shows the SVG at 24 px; the page icon is the SVG |
 | README and GitHub | the 128 px PNG at the top of the README |
 

@@ -8,7 +8,7 @@ A CaissaTrainer-shaped project (`scripts/e2e/template`): `frontend/` with `npm r
 
 For automatic discovery the run also builds a home folder (`GITMANAGER_HOME`): `Projects/chess-engine` with a submodule and a linked worktree `Projects/chess-engine-review`, `code/openings`, a repository inside `Projects/site/node_modules`, and one five levels deep.
 
-## Results: 33 of 33 steps passed
+## Results: 47 of 47 steps passed
 
 | # | Scenario step | Verified by |
 | --- | --- | --- |
@@ -32,14 +32,20 @@ For automatic discovery the run also builds a home folder (`GITMANAGER_HOME`): `
 | 30 | Remove a discovered repository | the worktree is removed from GitManager; its folder stays on disk |
 | 31-32 | Close and reopen | discovery runs again at launch and does not bring the removed worktree back; repository, profile, selected profile and branch restored |
 | 33 | Unsafe operation refused | a local commit and a teammate commit make `main` diverge; Pull is refused with an explanation; `HEAD`, the working tree and the stash are unchanged, and the remote file did not appear |
+| 34-36 | Title bar | with the window controls overlay on (`GITMANAGER_TITLEBAR=overlay`; on by default on Windows): the drag strip is 52 px tall and ends where the caption buttons begin; no button, input, tab or switch inside it is draggable; nothing sits under the caption buttons; the panel under them is `#1B1C1C`; the same holds in Settings and with a dialog open |
+| 37-40 | Minimize to system tray | no tray icon while the setting is off; switched on and saved in Settings, General: the icon appears with Open GitManager and Quit GitManager; minimizing hides the window; clicking the icon restores it |
+| 41-42 | Launched at sign-in, Start minimized | started with `--launched-at-login`: the window stays hidden behind the tray icon; no service is running and the repository's `HEAD`, branch and working tree are unchanged |
+| 43-44 | Single instance | a second GitManager process exits with code 0 and the hidden window is shown; the tray icon goes away with it (Minimize to system tray off) |
+| 45-47 | Tray quit, manual launch | a hidden window always has the tray icon; Quit GitManager ends the process; a launch without the argument opens the window although Start minimized is on |
 
-Screenshots of each stage are in [`screenshots/`](screenshots/). The same scenario also ran Summa-UI's objective checks on six screens (see [SUMMA_UI_ADOPTION.md](SUMMA_UI_ADOPTION.md)).
+Screenshots of each stage are in [`screenshots/`](screenshots/); `16-title-bar.png` is the whole window as the X server draws it, caption buttons included (Linux draws its own round buttons; Windows draws its native ones, see below). The same scenario also ran Summa-UI's objective checks on six screens (see [SUMMA_UI_ADOPTION.md](SUMMA_UI_ADOPTION.md)).
 
-The automated tests (`npm test`, 85 tests on Linux; one more runs only on Windows) additionally cover, against temporary repositories and real processes:
+The automated tests (`npm test`, 101 tests on Linux; one more runs only on Windows) additionally cover, against temporary repositories and real processes:
 
 - Git: status parsing for every change kind and sync state, pull refusals (diverged, local changes would be overwritten, `pull.rebase` and `merge.autostash` configured), switch refusal, branch name injection, tracking branches.
 - Branches: default branch from `refs/remotes/<remote>/HEAD` and from `ls-remote --symref` (with the local remote HEAD deleted, and not written back), a default named `dev`, no remote, several remotes without origin, a chosen base and a vanished one; branches 7 ahead, 5 behind, 2 ahead and 3 behind, unrelated history, local and remote copies with different tips, a gone upstream, detached HEAD, empty repository; the same counts without Git 2.41's `%(ahead-behind)`; cache reuse and recomputation; unique and missing commits and changed files; and every inspection leaves `HEAD`, the index, the working tree, the stash, the refs and the config byte-identical.
 - Discovery: worktrees, submodules, separate git directories, fake `.git`, dependency and hidden folders, depth, symbolic links, unreadable folders, the folder budget, the WSL scan script run with real `sh` and `find`, common locations from the home folder, registration once with progress events, preserved manual repositories, profiles and settings, removed repositories never coming back across restarts until added manually, the same folder through `C:\`, `/mnt/c` and `\\wsl.localhost` paths, unreadable roots reported without stopping, and discovery leaving repositories untouched.
+- Startup and tray: the `--launched-at-login` argument, Start minimized only for that launch, when the tray icon is wanted, defaults off; the startup entry against a fake that behaves like the Run key and Task Manager's StartupApproved key (the installed executable and argument are written, an entry turned off in Task Manager reads as off and is approved again when switched on, nothing is ever written from a development build or off Windows); saving and correcting the settings through the backend; the title bar colours checked against the Summa-UI tokens.
 - Processes, persistence (including a configuration file from before discovery existed), trust, env files and path conversion, as before.
 
 ## Not verified here

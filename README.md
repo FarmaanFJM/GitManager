@@ -40,6 +40,12 @@ GitManager never discards changes, resets, force-pulls, rebases, merges, deletes
 - Switching branches while services run asks you to stop them first.
 - Nothing from a repository is ever executed automatically. A profile runs only after you review its exact commands and trust it, and any change to a command, directory, environment or runtime asks again.
 
+**Window and startup**
+- On Windows there is no separate title bar: Windows' own minimize, maximize (with Snap layouts) and close buttons sit on the charcoal main panel (`#1B1C1C`), beside the repository header, and the GitManager logo and name are at the top of the sidebar. Drag the top of the window to move it, double-click to maximize; resizing and Snap work as in any Windows app.
+- Settings, General (all off by default): **Launch at Windows startup**, **Start minimized** (only for that automatic start: GitManager waits in the notification area) and **Minimize to system tray** (click the tray icon to bring the window back; its menu has Open GitManager and Quit GitManager).
+- The startup switch shows what Windows will actually do, including an entry turned off in Task Manager. The entry points at the installed `GitManager.exe` and is removed when GitManager is uninstalled.
+- Starting with Windows never starts services, pulls or switches branches. One GitManager runs at a time; starting it again brings the open window forward.
+
 ## Windows and WSL 2
 
 - Native repositories use the Git on your PATH. WSL repositories use the Git inside their own distribution through `wsl.exe --exec`, never Windows Git on a `\\wsl$` path.
@@ -80,9 +86,12 @@ npm run verify:branding   # logo colours, transparency, ICO frames, packaging ic
 npm run typecheck
 npm test                  # unit and integration tests: temporary Git repositories and real processes
 npm run test:e2e          # the first-release acceptance scenario against the built app
+node scripts/e2e-windows.mjs release/GitManager-<version>-x64.exe   # Windows: install and test the installed build
 ```
 
-`npm run test:e2e` builds a CaissaTrainer-shaped project (a Vite frontend and a Spring Boot backend started with `./mvnw spring-boot:run`) in a real Git repository with a bare remote and a teammate clone, then drives GitManager through registration, fetch, fast-forward pull, branch switching, profile setup, Run, readiness, logs, Open in Chrome, Stop, restart of the app, and a refused unsafe pull. It needs Java and Maven, Chrome or Chromium, and a display (`xvfb-run` on Linux). It writes screenshots, Summa-UI check results and a step report to `e2e-output/`.
+`npm run test:e2e` builds a CaissaTrainer-shaped project (a Vite frontend and a Spring Boot backend started with `./mvnw spring-boot:run`) in a real Git repository with a bare remote and a teammate clone, then drives GitManager through registration, fetch, fast-forward pull, branch switching, profile setup, Run, readiness, logs, Open in Chrome, Stop, restart of the app, and a refused unsafe pull. It needs Java and Maven, Chrome or Chromium, and a display (`xvfb-run` on Linux). It also checks the title bar layout, the tray, start minimized at sign-in and the single instance. It writes screenshots, Summa-UI check results and a step report to `e2e-output/`.
+
+`scripts/e2e-windows.mjs` (Windows only, run by CI on `windows-latest`) installs the NSIS installer silently, starts the installed `GitManager.exe` and drives it with real Windows mouse and keyboard input: double-click and the caption buttons to maximize, restore and minimize, dragging and resizing, Win+Left, the colours around the caption buttons in both window states and at 150 % scale, the startup entry in the registry (including one turned off in Task Manager), minimize to tray, the second instance, and that uninstalling removes the startup entry.
 
 ## Documentation
 
