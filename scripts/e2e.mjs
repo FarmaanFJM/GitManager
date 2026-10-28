@@ -67,6 +67,23 @@ async function closeApp() {
   await Promise.race([exited, new Promise((_, rej) => setTimeout(() => rej(new Error('GitManager did not exit within 20 s')), 20000))])
   app = null
 }
+/**
+ * Ends GitManager even after a failed step. With services still running it asks before quitting, and nobody answers
+ * that here: stop them through the API first, then close, and kill the process if it has not exited after 20 s.
+ */
+async function forceClose() {
+  if (!app) return
+  const proc = app.process()
+  if (proc.exitCode !== null) return
+  const stopAll = page?.evaluate(async () => {
+    const s = await window.gitmanager.state()
+    for (const id of new Set(s.services.filter(x => x.pid !== null).map(x => x.key.split(':')[0]))) await window.gitmanager.stopServices(id)
+  }).catch(() => {})
+  await Promise.race([stopAll, new Promise(r => setTimeout(r, 30000))])
+  const exited = new Promise(r => proc.once('exit', () => r(true)))
+  void app.close().catch(() => {})
+  if (!await Promise.race([exited, new Promise(r => setTimeout(() => r(false), 20000))])) proc.kill('SIGKILL')
+}
 const shot = async (name) => { await page.waitForTimeout(250); await page.screenshot({ path: join(OUT, `${name}.png`) }) }
 // Summa-UI objective checks on a screen, recorded in the report (they inform the review; they do not fail the run).
 report.summaChecks = {}
@@ -244,7 +261,7 @@ async function main() {
     await page.getByRole('button', { name: 'Open in browser' }).click()
     const opened = await waitFor(async () => {
       try { const tabs = await (await fetch('http://127.0.0.1:9333/json')).json(); return tabs.some(t => t.url.startsWith('http://localhost:5173') && /backend UP/.test(t.title)) } catch { return false }
-    }, 30000)
+    }, 60000) // a cold Chrome start on a busy CI runner, then Vite and Spring Boot
     check(opened, 'Open in Chrome: page loaded and reached the backend through the frontend', 'tab title "CaissaTrainer · backend UP"')
     try { execFileSync('pkill', ['-f', join(work, 'chrome-profile')]) } catch { /* already closed */ }
   } else log(false, 'Open in Chrome', 'no Chrome or Chromium found on this machine')
@@ -386,7 +403,7 @@ try {
   console.error(e)
   if (page) await page.screenshot({ path: join(OUT, 'failure.png') }).catch(() => {})
 } finally {
-  if (app) await app.close().catch(() => {})
+  await forceClose()
   try { execFileSync('pkill', ['-f', join(work, 'chrome-profile')]) } catch { /* not running */ }
   report.finishedAt = new Date().toISOString()
   writeFileSync(join(OUT, 'report.json'), JSON.stringify(report, null, 2) + '\n')

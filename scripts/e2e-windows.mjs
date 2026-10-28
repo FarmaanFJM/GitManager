@@ -251,7 +251,11 @@ try {
   if (page) await page.screenshot({ path: join(OUT, 'failure-page.png') }).catch(() => {})
   if (app) await capture('failure-window').catch(() => {})
 } finally {
-  if (app) await app.close().catch(() => {})
+  if (app && app.process().exitCode === null) {
+    const proc = app.process(), exited = new Promise(r => proc.once('exit', () => r(true)))
+    void app.close().catch(() => {})
+    if (!await Promise.race([exited, sleep(20000).then(() => false)])) proc.kill()
+  }
   for (const k of [RUN, APPROVED]) spawnSync('reg', ['delete', k, '/v', 'GitManager', '/f'])
   report.finishedAt = new Date().toISOString()
   writeFileSync(join(OUT, 'report.json'), JSON.stringify(report, null, 2) + '\n')
