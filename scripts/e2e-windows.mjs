@@ -141,15 +141,18 @@ async function main() {
   // Windows starts the move only after its drag threshold, so a few pixels of the gesture are not applied
   check(Math.abs(moved.x - before.x - 120) <= 16 && Math.abs(moved.y - before.y - 70) <= 16 && moved.width === before.width, 'Window: dragging the title bar moves it', `${before.x},${before.y} -> ${moved.x},${moved.y}`)
   // The resize edge is just inside the visible frame or in Windows' invisible border just outside it; try both.
-  let resized = moved
+  // Back to the start position first: the drag left the right edge beyond a 1024 px wide screen.
+  await setBounds({ x: 40, y: 30, width: 960, height: 660 }); await sleep(400)
+  const sized = (await win()).bounds
+  let resized = sized
   for (const d of [-3, 4]) {
-    const [cx, cy] = await screenPt(moved.width + d, moved.height + d)
+    const [cx, cy] = await screenPt(sized.width + d, sized.height + d)
     ps('-Action', 'drag', '-X', String(cx), '-Y', String(cy), '-X2', String(cx + 60), '-Y2', String(cy + 40))
     await sleep(500)
     resized = (await win()).bounds
-    if (resized.width !== moved.width) break
+    if (resized.width !== sized.width) break
   }
-  check(resized.width >= moved.width + 40 && resized.height >= moved.height + 25, 'Window: dragging the corner resizes it', `${moved.width}x${moved.height} -> ${resized.width}x${resized.height}`)
+  check(resized.width >= sized.width + 40 && resized.height >= sized.height + 25, 'Window: dragging the corner resizes it', `${sized.width}x${sized.height} -> ${resized.width}x${resized.height}`)
   await page.bringToFront(); await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].focus())
   await mouse('click', 150, 26) // focus through Windows, so the shortcut goes to this window
   ps('-Action', 'snapleft')
