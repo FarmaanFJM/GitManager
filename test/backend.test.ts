@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import { join } from 'node:path'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
@@ -52,7 +52,7 @@ describe('backend', () => {
     expect(b.services.list()).toEqual([])
 
     const preview = await b.previewLaunch(saved.value.id)
-    expect(preview.ok && preview.value[0]).toMatchObject({ dir: f.local, command: p.services[0].command })
+    expect(preview.ok && preview.value[0]).toMatchObject({ dir: realpathSync.native(f.local), command: p.services[0].command })
     await b.trustProfile(saved.value.id)
     const renamed = await b.saveProfile({ ...b.store.profile(saved.value.id)!, name: 'Renamed' })
     expect(renamed.ok && renamed.value.trustedFingerprint).toBeTruthy()

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
@@ -15,7 +15,8 @@ let cleanups: (() => void)[] = []
 afterEach(() => { cleanups.forEach(c => c()); cleanups = [] })
 const tmp = () => { const t = tempDir(); cleanups.push(t.cleanup); return t.dir }
 const repo = (dir: string) => { mkdirSync(dir, { recursive: true }); git(dir, 'init', '-q', '-b', 'main'); commit(dir, 'a.txt', 'a', 'init'); return dir }
-const rel = (root: string, f: Found[]) => f.map(x => `${x.location.path.slice(root.length + 1).replace(/\\/g, '/')}${x.worktree ? ' (worktree)' : ''}`).sort()
+// Discovery returns real paths (on Windows the temp folder's 8.3 short name is expanded), so compare against the real root.
+const rel = (root: string, f: Found[]) => { const base = realpathSync.native(root); return f.map(x => `${x.location.path.slice(base.length + 1).replace(/\\/g, '/')}${x.worktree ? ' (worktree)' : ''}`).sort() }
 
 /** A home folder with the situations discovery must handle. */
 function homeFixture() {
@@ -76,7 +77,7 @@ describe('recognizing repositories', () => {
     expect(r.ok && r.value.length).toBeLessThanOrEqual(1)
   })
 
-  it('the WSL scan script (run here with sh and find) gives the same result and never reports /mnt paths', async () => {
+  it.skipIf(process.platform === 'win32')('the WSL scan script (run here with sh and find) gives the same result and never reports /mnt paths', async () => {
     const { home } = homeFixture()
     const out = execFileSync('sh', ['-c', wslScanScript(), 'sh', join(home, 'Projects'), '4'], { encoding: 'utf8' })
     expect(rel(join(home, 'Projects'), parseWslScan(out, 'Ubuntu'))).toEqual(['chess-engine', 'chess-engine-review (worktree)', 'libs/lib-a', 'web/shop'])
@@ -88,12 +89,16 @@ describe('common locations', () => {
   it('derives development folders from the home folder, not from a user name', async () => {
     const home = tmp()
     for (const d of ['Projects', 'source/repos', 'code']) mkdirSync(join(home, d), { recursive: true })
-    const t = await commonTargets('linux', home)
-    const names = t.map(x => x.location.path.slice(home.length + 1) || '(home)')
+    const os = process.platform === 'win32' ? 'windows' : 'linux'
+    const t = await commonTargets(os, home, { drives: [] })
+    const names = t.map(x => x.location.path.slice(home.length + 1).replace(/\\/g, '/') || '(home)')
     expect(names).toEqual(expect.arrayContaining(['source/repos', 'Projects', 'code', '(home)']))
+    expect(new Set(names.map(n => n.toLowerCase())).size).toBe(names.length) // Projects and projects are one folder on Windows
     expect(t.find(x => x.location.path === home)?.depth).toBe(1)
-    const deep = await commonTargets('linux', home, { deep: true })
-    expect(deep).toEqual([{ location: { kind: 'native', path: home }, depth: 5, label: home }])
+    if (os === 'linux') {
+      const deep = await commonTargets('linux', home, { deep: true })
+      expect(deep).toEqual([{ location: { kind: 'native', path: home }, depth: 5, label: home }])
+    }
   })
 
   it.runIf(process.platform === 'win32')('finds drive-level folders such as C:\\Projects on Windows', async () => {

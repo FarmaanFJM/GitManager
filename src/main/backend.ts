@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import type { AppState, Distros, LaunchPreview } from '../shared/api.js'
 import type { BranchDetail, BranchOverview, DiscoveredRepo, DiscoveryStatus, Location, OpError, Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, Root, ServiceStatus, Settings } from '../shared/types.js'
+import { realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { AutoDiscovery } from '../core/autodiscovery.js'
 import { discover } from '../core/discovery.js'
@@ -9,7 +10,7 @@ import { hostOs, listWslDistros, type HostOs } from '../core/exec.js'
 import { Git } from '../core/git/ops.js'
 import { classifySync, isClean } from '../core/git/status.js'
 import { editorSpec, openInBrowser } from '../core/launchers.js'
-import { displayLocation, parseLocationInput, sameLocation, wslUncPath } from '../core/paths.js'
+import { displayLocation, normalizePath, parseLocationInput, sameLocation, wslUncPath } from '../core/paths.js'
 import { ServiceManager } from '../core/processes.js'
 import { draftProfile, fingerprint, isTrusted, planLaunch, readRuntimeFile, serviceKey, type FileReader, type Launch } from '../core/profiles.js'
 import { newId, Store } from '../core/store.js'
@@ -86,6 +87,8 @@ export class Backend {
   async addRepo(input: unknown, distro?: unknown): Promise<Result<{ repo: Repo; existed: boolean }>> {
     const parsed = parseLocationInput(v.str(input, 'Path', { allowEmpty: false }), { hostOs: this.os, distro: distro ? v.distro(distro) : undefined })
     if (!parsed.ok) return err('BAD_PATH', parsed.message)
+    // The same canonical path discovery uses (junctions, symbolic links, 8.3 short names and letter case resolved).
+    if (parsed.location.kind === 'native') { try { parsed.location.path = normalizePath(realpathSync.native(parsed.location.path)) } catch { /* verifyRepo reports a missing folder */ } }
     const existing = this.store.findRepoByLocation(parsed.location)
     if (existing) return ok({ repo: existing, existed: true })
     const check = await this.git.verifyRepo(parsed.location)

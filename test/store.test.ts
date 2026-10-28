@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { discover } from '../src/core/discovery.js'
@@ -120,7 +120,8 @@ describe('bounded discovery', () => {
     mk('alpha'); mk('group/beta'); mk('group/deep/deeper/gamma'); mk('node_modules/pkg'); mk('.hidden/repo')
     const r = await discover({ kind: 'native', path: root }, 2)
     expect(r.ok).toBe(true)
-    const names = r.ok ? r.value.map(l => l.location.path.slice(root.length + 1).replace(/\\/g, '/')).sort() : []
+    const real = realpathSync.native(root)
+    const names = r.ok ? r.value.map(l => l.location.path.slice(real.length + 1).replace(/\\/g, '/')).sort() : []
     expect(names).toEqual(['alpha', 'group/beta'])
     const deeper = await discover({ kind: 'native', path: root }, 4)
     expect(deeper.ok && deeper.value).toHaveLength(3)
