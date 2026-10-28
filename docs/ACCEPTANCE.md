@@ -49,7 +49,7 @@ The automated tests (`npm test`, 101 tests on Linux; one more runs only on Windo
 - Startup and tray: the `--launched-at-login` argument, Start minimized only for that launch, when the tray icon is wanted, defaults off; the startup entry against a fake that behaves like the Run key and Task Manager's StartupApproved key (the installed executable and argument are written, an entry turned off in Task Manager reads as off and is approved again when switched on, nothing is ever written from a development build or off Windows); saving and correcting the settings through the backend; the title bar colours checked against the Summa-UI tokens.
 - Processes, persistence (including a configuration file from before discovery existed), trust, env files and path conversion, as before.
 
-## The installed Windows build
+## The installed Windows build: 30 of 30 steps passed
 
 `scripts/e2e-windows.mjs` runs in CI on `windows-latest` after the package is built. It installs the NSIS installer silently for the current user and tests the installed `GitManager.exe`, not a development Electron. Mouse and keyboard input go through Windows (`SetCursorPos`, `mouse_event`, `keybd_event` in `scripts/e2e/win-input.ps1`), so hit testing, the caption buttons and Snap are Windows' own; colours are read from the screen.
 
