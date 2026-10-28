@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppShell, useHotkey } from '../../third_party/summa-ui/src/ui'
 import type { AppState, Distros } from '../shared/api'
-import type { LogLine, OpError, Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, ServiceStatus } from '../shared/types'
+import type { DiscoveryStatus, LogLine, OpError, Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, ServiceStatus } from '../shared/types'
 import { api } from './api'
 import { AddRepoDialog, FindReposDialog } from './dialogs'
 import { ProfileEditor } from './ProfileEditor'
@@ -24,6 +24,7 @@ export type Model = {
   services: Record<string, ServiceStatus>
   logs: (key: string) => LogLine[]
   logVersion: number
+  discovery: DiscoveryStatus | null
 }
 
 export type Actions = {
@@ -35,6 +36,7 @@ export type Actions = {
   loadLogs: (key: string) => Promise<void>
   addRepoDialog: () => void
   findReposDialog: () => void
+  rescan: (scope: 'common' | 'deep') => void
 }
 
 export function App() {
@@ -47,6 +49,7 @@ export function App() {
   const [services, setServices] = useState<Record<string, ServiceStatus>>({})
   const [view, setView] = useState<View>({ kind: 'repo' })
   const [dialog, setDialog] = useState<'add' | 'find' | null>(null)
+  const [discovery, setDiscovery] = useState<DiscoveryStatus | null>(null)
   const logStore = useRef(new Map<string, LogLine[]>())
   const [logVersion, setLogVersion] = useState(0)
 
@@ -70,7 +73,7 @@ export function App() {
   useEffect(() => {
     void (async () => {
       const [p, s] = await Promise.all([api.platform(), api.state()])
-      setPlatform(p); setData(s)
+      setPlatform(p); setData(s); setDiscovery(s.discovery)
       setServices(Object.fromEntries(s.services.map(x => [x.key, x])))
       if (p.os === 'windows') void api.wslDistros().then(setDistros)
       const ids = s.repos.map(r => r.id)
@@ -91,6 +94,18 @@ export function App() {
     const offClear = api.on('logs-cleared', k => { logStore.current.set(k, []); setLogVersion(v => v + 1) })
     return () => { offStatus(); offLogs(); offClear() }
   }, [])
+
+  // Discovery runs in the main process; repositories appear in the list as they are registered.
+  useEffect(() => {
+    let timer = 0
+    const offStatus = api.on('discovery-status', setDiscovery)
+    const offAdded = api.on('repo-added', repo => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => { void reload() }, 250)
+      void refresh(repo.id)
+    })
+    return () => { offStatus(); offAdded(); window.clearTimeout(timer) }
+  }, [reload, refresh])
 
   const selectedId = data?.ui.selectedRepoId ?? null
 
@@ -135,14 +150,15 @@ export function App() {
   useEffect(() => { document.title = repo ? `${repo.name} · GitManager` : 'GitManager' }, [repo])
 
   const model: Model | null = useMemo(() => platform && data ? ({
-    platform, data, distros, statuses, remotes, fetchedAt, services, logVersion, logs: (k: string) => logStore.current.get(k) ?? [],
-  }) : null, [platform, data, distros, statuses, remotes, fetchedAt, services, logVersion])
+    platform, data, distros, statuses, remotes, fetchedAt, services, logVersion, discovery, logs: (k: string) => logStore.current.get(k) ?? [],
+  }) : null, [platform, data, distros, statuses, remotes, fetchedAt, services, logVersion, discovery])
 
   const actions: Actions = useMemo(() => ({
     reload, refresh, select, setView, loadLogs,
     markFetched: (id: string) => setFetchedAt(m => ({ ...m, [id]: Date.now() })),
     addRepoDialog: () => setDialog('add'),
     findReposDialog: () => setDialog('find'),
+    rescan: (scope: 'common' | 'deep') => { void api.rescan(scope).then(r => { if (r.ok) setDiscovery(r.value) }) },
   }), [reload, refresh, select, loadLogs])
 
   if (!model) return <AppShell sidebar={<Sidebar.Skeleton />}><div /></AppShell>
@@ -159,7 +175,7 @@ export function App() {
       {view.kind === 'settings' ? <SettingsView model={model} actions={actions} />
         : view.kind === 'profile' && repo ? <ProfileEditor key={view.profile.id} model={model} actions={actions} repo={repo} initial={view.profile} isNew={view.isNew} />
           : repo ? <Workspace key={repo.id} model={model} actions={actions} repo={repo} />
-            : <WelcomeEmpty hasRepos={model.data.repos.length > 0} onAdd={actions.addRepoDialog} />}
+            : <WelcomeEmpty hasRepos={model.data.repos.length > 0} searching={!!model.discovery?.running} onAdd={actions.addRepoDialog} />}
       <AddRepoDialog open={dialog === 'add'} model={model} onClose={() => setDialog(null)} onAdded={id => void onAdded([id])} />
       <FindReposDialog open={dialog === 'find'} model={model} onClose={() => setDialog(null)} onAdded={ids => void onAdded(ids)} onRootsChanged={reload} />
     </AppShell>

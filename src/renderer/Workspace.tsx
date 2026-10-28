@@ -5,6 +5,7 @@ import type { Commit, Comparison, OpError, Repo, Result } from '../shared/types'
 import { api } from './api'
 import type { Actions, Model } from './App'
 import { BranchPicker } from './BranchPicker'
+import { BranchesPanel } from './Branches'
 import { ServicesPanel } from './Services'
 import { ago, changesText, syncText } from './util'
 
@@ -31,11 +32,16 @@ export function Workspace({ model, actions, repo }: { model: Model; actions: Act
   const st = view?.status
   const [busy, setBusy] = useState<Busy>(null)
   const [banner, setBanner] = useState<OpError | null>(null)
-  const [tab, setTab] = useState<'services' | 'history'>('services')
+  // Every repository opens on its Overview; the workspace is keyed by repository, so this resets on each selection.
+  const [tab, setTab] = useState<'overview' | 'branches' | 'history'>('overview')
+  const [branchCount, setBranchCount] = useState<number | null>(null)
   const [historyKey, setHistoryKey] = useState(0)
   const confirm = useConfirm()
   const toast = useToast()
   const running = Object.values(model.services).filter(s => s.repoId === repo.id && s.pid !== null)
+
+  // The branch count on the tab comes from the cheap branch list; the comparisons load only when the tab opens.
+  useEffect(() => { void api.branches(repo.id).then(r => { if (r.ok) setBranchCount(r.value.length) }) }, [repo.id, historyKey])
 
   const after = useCallback(async <T,>(r: Result<T>) => {
     if (!r.ok) setBanner(r.error); else setBanner(null)
@@ -91,7 +97,7 @@ export function Workspace({ model, actions, repo }: { model: Model; actions: Act
     if (running.length) { setBanner({ code: 'SERVICES_RUNNING', message: 'Stop the running services of this repository first.' }); return }
     const yes = await confirm({
       title: `Remove ${repo.name} from GitManager?`,
-      description: 'The folder and its files stay where they are. Its development profiles are removed from GitManager.',
+      description: 'The folder and its files stay where they are. Its development profiles are removed, and automatic discovery will not add it again.',
       confirmLabel: 'Remove repository', destructive: true,
     })
     if (!yes) return
@@ -146,11 +152,15 @@ export function Workspace({ model, actions, repo }: { model: Model; actions: Act
       {st && (
         <>
           <div className="gm-tabs-row">
-            <Tabs label="Repository" value={tab} onChange={setTab} items={[{ value: 'services', label: 'Services' }, { value: 'history', label: 'History' }]} />
+            <Tabs label="Repository" value={tab} onChange={setTab} items={[
+              { value: 'overview', label: 'Overview' },
+              { value: 'branches', label: branchCount ? `Branches ${branchCount}` : 'Branches' },
+              { value: 'history', label: 'History' },
+            ]} />
           </div>
-          {tab === 'services'
-            ? <ServicesPanel model={model} actions={actions} repo={repo} onError={setBanner} toast={toast} />
-            : <History repoId={repo.id} reloadKey={historyKey} sync={st.sync} />}
+          {tab === 'overview' && <ServicesPanel model={model} actions={actions} repo={repo} onError={setBanner} toast={toast} />}
+          {tab === 'branches' && <BranchesPanel repo={repo} reloadKey={historyKey} onSwitch={n => void switchTo(n)} onTrack={r => void track(r)} onCount={setBranchCount} />}
+          {tab === 'history' && <History repoId={repo.id} reloadKey={historyKey} sync={st.sync} />}
         </>
       )}
       {!st && !view?.error && <div className="gm-loading-line"><span className="sm-spinner" aria-hidden="true" /> Reading repository</div>}
@@ -195,12 +205,12 @@ function Facts({ model, repoId }: { model: Model; repoId: string }) {
   )
 }
 
-function CommitRow({ c }: { c: Commit }) {
+export function CommitRow({ c, compact }: { c: Commit; compact?: boolean }) {
   return (
     <li className="gm-commit">
       <span className="gm-hash">{c.short}</span>
       <span className="gm-commit-subject truncate" title={c.subject}>{c.subject}</span>
-      <span className="gm-commit-author truncate">{c.author}</span>
+      {!compact && <span className="gm-commit-author truncate">{c.author}</span>}
       <time className="gm-commit-date" dateTime={new Date(c.date).toISOString()} title={new Date(c.date).toLocaleString()}>{ago(c.date)}</time>
     </li>
   )
@@ -249,13 +259,15 @@ function History({ repoId, reloadKey, sync }: { repoId: string; reloadKey: numbe
   )
 }
 
-export function WelcomeEmpty({ hasRepos, onAdd }: { hasRepos: boolean; onAdd: () => void }) {
+export function WelcomeEmpty({ hasRepos, searching, onAdd }: { hasRepos: boolean; searching: boolean; onAdd: () => void }) {
   return (
     <div className="gm-work">
       <header className="gm-top"><DrawerToggle /></header>
-      <div className="sm-empty sm-empty--center gm-welcome">
-        <p className="sm-empty__text">{hasRepos ? 'Select a repository.' : 'No repositories yet.'}</p>
-        {!hasRepos && <Button variant="primary" icon="plus" onClick={onAdd}>Add repository</Button>}
+      <div className="sm-empty sm-empty--center gm-welcome" aria-busy={searching && !hasRepos}>
+        {!hasRepos && searching
+          ? <p className="sm-empty__text row"><span className="sm-spinner" aria-hidden="true" /> Looking for repositories on this computer.</p>
+          : <p className="sm-empty__text">{hasRepos ? 'Select a repository.' : 'No repositories found yet.'}</p>}
+        {!hasRepos && <Button variant={searching ? 'secondary' : 'primary'} icon="plus" onClick={onAdd}>Add repository</Button>}
       </div>
     </div>
   )

@@ -1,5 +1,5 @@
 {
-  "startedAt": "2026-10-28T15:45:17.890Z",
+  "startedAt": "2026-10-28T16:42:25.796Z",
   "environment": {
     "platform": "linux",
     "node": "v22.22.0",
@@ -8,138 +8,198 @@
   "steps": [
     {
       "step": 1,
-      "name": "Open GitManager: first-run empty state",
+      "name": "Open GitManager: discovery registered repositories and a worktree from the home folder",
       "ok": true,
-      "detail": ""
+      "detail": "chess-engine, chess-engine-review, openings"
     },
     {
       "step": 2,
-      "name": "Register an existing repository",
+      "name": "Discovery skipped dependency folders, submodules and folders beyond the depth",
       "ok": true,
       "detail": ""
     },
     {
       "step": 3,
-      "name": "Current branch shown",
+      "name": "Worktree recognized",
       "ok": true,
-      "detail": "main"
+      "detail": ""
     },
     {
       "step": 4,
-      "name": "Working tree and sync status shown",
+      "name": "Discovery left the repositories untouched",
       "ok": true,
-      "detail": "Clean, Up to date"
+      "detail": ""
     },
     {
       "step": 5,
-      "name": "Remote configured and reachable",
+      "name": "Register an existing repository",
       "ok": true,
       "detail": ""
     },
     {
       "step": 6,
+      "name": "Current branch shown",
+      "ok": true,
+      "detail": "main"
+    },
+    {
+      "step": 7,
+      "name": "Working tree and sync status shown",
+      "ok": true,
+      "detail": "Clean, Up to date"
+    },
+    {
+      "step": 8,
+      "name": "Remote configured and reachable",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 9,
       "name": "Uncommitted change detected",
       "ok": true,
       "detail": "1 changed"
     },
     {
-      "step": 7,
+      "step": 10,
       "name": "Fetch changes no local branch or file",
       "ok": true,
       "detail": ""
     },
     {
-      "step": 8,
+      "step": 11,
       "name": "Behind identified",
       "ok": true,
       "detail": "2 commits to pull"
     },
     {
-      "step": 9,
+      "step": 12,
       "name": "Incoming commits listed",
       "ok": true,
       "detail": ""
     },
     {
-      "step": 10,
+      "step": 13,
       "name": "Fast-forward pull",
       "ok": true,
       "detail": "HEAD = origin/main, uncommitted notes kept, no stash"
     },
     {
-      "step": 11,
+      "step": 14,
       "name": "Switch branch, local work kept",
       "ok": true,
       "detail": "tracking feature/board-themes"
     },
     {
-      "step": 12,
+      "step": 15,
       "name": "Tracking branch created from the remote branch",
       "ok": true,
       "detail": ""
     },
     {
-      "step": 13,
-      "name": "Profile saved and selected",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "step": 14,
-      "name": "Backend shows Starting before it is reachable",
-      "ok": true,
-      "detail": "Starting"
-    },
-    {
-      "step": 15,
-      "name": "Frontend Ready when http://localhost:5173 responds",
-      "ok": true,
-      "detail": ""
-    },
-    {
       "step": 16,
-      "name": "Backend Ready when port 8080 accepts connections",
+      "name": "Branches: origin/feature/board-themes 1 ahead, 0 behind origin/main",
       "ok": true,
-      "detail": ""
+      "detail": "0 / 1 / Ahead"
     },
     {
       "step": 17,
-      "name": "Backend log captured (Spring Boot output)",
+      "name": "Branches: default branch detected from the remote and marked",
       "ok": true,
       "detail": ""
     },
     {
       "step": 18,
-      "name": "Frontend log captured (Vite output)",
+      "name": "Branches: checked-out branch marked without relying on colour",
       "ok": true,
       "detail": ""
     },
     {
       "step": 19,
+      "name": "Branch inspection changed nothing (HEAD, working tree, stash)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 20,
+      "name": "Returning to a repository opens its Overview",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 21,
+      "name": "Profile saved and selected",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 22,
+      "name": "Backend shows Starting before it is reachable",
+      "ok": true,
+      "detail": "Starting"
+    },
+    {
+      "step": 23,
+      "name": "Frontend Ready when http://localhost:5173 responds",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 24,
+      "name": "Backend Ready when port 8080 accepts connections",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 25,
+      "name": "Backend log captured (Spring Boot output)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 26,
+      "name": "Frontend log captured (Vite output)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 27,
       "name": "Open in Chrome: page loaded and reached the backend through the frontend",
       "ok": true,
       "detail": "tab title \"CaissaTrainer · backend UP\""
     },
     {
-      "step": 20,
+      "step": 28,
       "name": "Switch while services run requires stopping them first",
       "ok": true,
       "detail": "cancelled, branch unchanged"
     },
     {
-      "step": 21,
+      "step": 29,
       "name": "Stop both services: process trees ended, ports freed",
       "ok": true,
-      "detail": "JVM 15394 gone"
+      "detail": "JVM 13621 gone"
     },
     {
-      "step": 22,
+      "step": 30,
+      "name": "Remove a discovered repository: the folder stays on disk",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 31,
+      "name": "Reopen: discovery ran again, the removed repository stayed removed",
+      "ok": true,
+      "detail": "caissa-trainer, chess-engine, openings"
+    },
+    {
+      "step": 32,
       "name": "Reopen: repository, profile and selection restored",
       "ok": true,
       "detail": ""
     },
     {
-      "step": 23,
+      "step": 33,
       "name": "Unsafe pull on a diverged branch refused, repository unchanged",
       "ok": true,
       "detail": ""
@@ -150,30 +210,27 @@
       "focusStops": 30,
       "findings": []
     },
-    "05-profile-editor": {
+    "05-branches": {
       "focusStops": 30,
       "findings": []
     },
-    "08-services-ready": {
-      "focusStops": 30,
-      "findings": [
-        {
-          "checkId": "CHK-012",
-          "status": "needs-human",
-          "target": "body",
-          "evidence": "accent fills 4, area 0.1% of viewport"
-        }
-      ]
-    },
-    "09-settings": {
+    "06-profile-editor": {
       "focusStops": 30,
       "findings": []
     },
-    "13-unsafe-pull-refused": {
+    "09-services-ready": {
+      "focusStops": 30,
+      "findings": []
+    },
+    "10-settings": {
+      "focusStops": 30,
+      "findings": []
+    },
+    "14-unsafe-pull-refused": {
       "focusStops": 30,
       "findings": []
     }
   },
   "result": "passed",
-  "finishedAt": "2026-10-28T15:46:03.004Z"
+  "finishedAt": "2026-10-28T16:43:23.350Z"
 }

@@ -6,32 +6,46 @@
 
 A CaissaTrainer-shaped project (`scripts/e2e/template`): `frontend/` with `npm run dev` (Vite on port 5173, proxying `/api` to the backend) and `backend/` with a Spring Boot 3.3 application on port 8080 and a generated Maven wrapper. It is committed to a fresh repository, pushed to a bare `origin`, and cloned twice: the clone registered in GitManager and a teammate clone that pushes changes during the run.
 
-## Results: 23 of 23 steps passed
+For automatic discovery the run also builds a home folder (`GITMANAGER_HOME`): `Projects/chess-engine` with a submodule and a linked worktree `Projects/chess-engine-review`, `code/openings`, a repository inside `Projects/site/node_modules`, and one five levels deep.
+
+## Results: 33 of 33 steps passed
 
 | # | Scenario step | Verified by |
 | --- | --- | --- |
-| 1 | Open GitManager | first-run empty state shown |
-| 2 | Register an existing repository | Add repository dialog with the clone's path; listed in the sidebar |
-| 3-5 | Branch and working tree status | `main`, Clean, Up to date, `origin, reachable` (a real `git ls-remote`) |
-| 6 | Uncommitted work detected | `README.md` edited outside GitManager; Refresh shows "1 changed" |
-| 7 | Fetch | the teammate pushed 2 commits; after Fetch, `HEAD` is unchanged |
-| 8-9 | Ahead, behind or diverged | "2 commits to pull", Pull 2 appears, History lists the incoming commits |
-| 10 | Fast-forward pull | `HEAD == origin/main`, the uncommitted edit is intact, `git stash list` is empty |
-| 11-12 | Switch branch without losing work | `origin/feature/board-themes` chosen in the picker creates a tracking branch; the uncommitted edit came along |
-| 13 | Configure and select a profile | Frontend (`npm run dev`, `frontend`, ready when http://localhost:5173 responds) and Backend (`./mvnw spring-boot:run`, `backend`, ready when port 8080 is open) |
-| 14-16 | Start both, observe progress | trust confirmation lists both commands; Backend shows Starting while Maven runs; each becomes Ready only when its own check passes |
-| 17-18 | Logs | Spring Boot's "Started App" and Vite's banner in each service's output |
-| 19 | Open in Chrome | GitManager launches the configured Chrome; the test reads the open tab over the DevTools endpoint: `http://localhost:5173/`, title "CaissaTrainer · backend UP" (the page reached Spring Boot through Vite) |
-| 20 | Branch switch while running | the confirmation "Stop services to switch branches?" appears; Cancel leaves the branch unchanged |
-| 21 | Stop both | both Stopped; ports 5173 and 8080 closed; the Spring Boot JVM (a grandchild of the shell GitManager started) is gone |
-| 22 | Close and reopen | repository, profile, selected profile and branch restored from the configuration file |
-| 23 | Unsafe operation refused | a local commit and a teammate commit make `main` diverge; Pull is refused with an explanation; `HEAD`, the working tree and the stash are unchanged, and the remote file did not appear |
+| 1-4 | Open GitManager: automatic discovery | without any action, chess-engine, its worktree and openings appear in the sidebar; the dependency-folder repository, the submodule and the too-deep repository do not; the worktree is labelled; the discovered repositories' status and stash are unchanged |
+| 5 | Register an existing repository | the add menu's Add repository with the clone's path (outside the scanned folders); listed in the sidebar |
+| 6-8 | Branch and working tree status | `main`, Clean, Up to date, `origin, reachable` (a real `git ls-remote`) |
+| 9 | Uncommitted work detected | `README.md` edited outside GitManager; Refresh shows "1 changed" |
+| 10 | Fetch | the teammate pushed 2 commits; after Fetch, `HEAD` is unchanged |
+| 11-12 | Ahead, behind or diverged | "2 commits to pull", Pull 2 appears, History lists the incoming commits |
+| 13 | Fast-forward pull | `HEAD == origin/main`, the uncommitted edit is intact, `git stash list` is empty |
+| 14-15 | Switch branch without losing work | `origin/feature/board-themes` chosen in the picker creates a tracking branch; the uncommitted edit came along |
+| 16-18 | Branches tab | origin/feature/board-themes 1 ahead, 0 behind origin/main; origin/main detected as the default from the remote and marked Default; the checked-out branch marked with a check icon and text for assistive technology |
+| 19 | Branch inspection is read-only | opening a branch shows its unique commit and changed file (THEMES.md); `HEAD`, the working tree and the stash are unchanged |
+| 20 | Overview by default | after selecting another repository and coming back, the Overview tab is selected |
+| 21 | Configure and select a profile | Frontend (`npm run dev`, `frontend`, ready when http://localhost:5173 responds) and Backend (`./mvnw spring-boot:run`, `backend`, ready when port 8080 is open) |
+| 22-24 | Start both, observe progress | trust confirmation lists both commands; Backend shows Starting while Maven runs; each becomes Ready only when its own check passes |
+| 25-26 | Logs | Spring Boot's "Started App" and Vite's banner in each service's output |
+| 27 | Open in Chrome | GitManager launches the configured Chrome; the test reads the open tab over the DevTools endpoint: `http://localhost:5173/`, title "CaissaTrainer · backend UP" (the page reached Spring Boot through Vite) |
+| 28 | Branch switch while running | the confirmation "Stop services to switch branches?" appears; Cancel leaves the branch unchanged |
+| 29 | Stop both | both Stopped; ports 5173 and 8080 closed; the Spring Boot JVM (a grandchild of the shell GitManager started) is gone |
+| 30 | Remove a discovered repository | the worktree is removed from GitManager; its folder stays on disk |
+| 31-32 | Close and reopen | discovery runs again at launch and does not bring the removed worktree back; repository, profile, selected profile and branch restored |
+| 33 | Unsafe operation refused | a local commit and a teammate commit make `main` diverge; Pull is refused with an explanation; `HEAD`, the working tree and the stash are unchanged, and the remote file did not appear |
 
-Screenshots of each stage are in [`screenshots/`](screenshots/). The same scenario also ran Summa-UI's objective checks on five screens (see [SUMMA_UI_ADOPTION.md](SUMMA_UI_ADOPTION.md)).
+Screenshots of each stage are in [`screenshots/`](screenshots/). The same scenario also ran Summa-UI's objective checks on six screens (see [SUMMA_UI_ADOPTION.md](SUMMA_UI_ADOPTION.md)).
 
-The automated tests (`npm test`, 56 tests) additionally cover, against temporary repositories and real processes: status parsing for every change kind and every sync state, pull refusals (diverged, local changes would be overwritten, `pull.rebase` and `merge.autostash` configured), switch refusal when changes would be overwritten, branch name injection, tracking branch creation, process tree termination including grandchildren, a port already in use (refused, other process untouched), readiness timeout, forced stop after the grace period, restart, concurrent services, configuration persistence and corrupt files, trust fingerprints, env files and path conversion.
+The automated tests (`npm test`, 85 tests on Linux; one more runs only on Windows) additionally cover, against temporary repositories and real processes:
+
+- Git: status parsing for every change kind and sync state, pull refusals (diverged, local changes would be overwritten, `pull.rebase` and `merge.autostash` configured), switch refusal, branch name injection, tracking branches.
+- Branches: default branch from `refs/remotes/<remote>/HEAD` and from `ls-remote --symref` (with the local remote HEAD deleted, and not written back), a default named `dev`, no remote, several remotes without origin, a chosen base and a vanished one; branches 7 ahead, 5 behind, 2 ahead and 3 behind, unrelated history, local and remote copies with different tips, a gone upstream, detached HEAD, empty repository; the same counts without Git 2.41's `%(ahead-behind)`; cache reuse and recomputation; unique and missing commits and changed files; and every inspection leaves `HEAD`, the index, the working tree, the stash, the refs and the config byte-identical.
+- Discovery: worktrees, submodules, separate git directories, fake `.git`, dependency and hidden folders, depth, symbolic links, unreadable folders, the folder budget, the WSL scan script run with real `sh` and `find`, common locations from the home folder, registration once with progress events, preserved manual repositories, profiles and settings, removed repositories never coming back across restarts until added manually, the same folder through `C:\`, `/mnt/c` and `\\wsl.localhost` paths, unreadable roots reported without stopping, and discovery leaving repositories untouched.
+- Processes, persistence (including a configuration file from before discovery existed), trust, env files and path conversion, as before.
 
 ## Not verified here
+
+- **Discovery on Windows and in WSL 2.** The Windows common locations (`<home>\\source\\repos`, drive-level folders such as `C:\\Projects`, the drive-letter probe), the WSL distribution list and home folder lookup, and the WSL scan running inside a distribution were not run on Windows or WSL. The WSL scan script itself was run with `sh` and `find` on Linux, and the Windows path handling and deduplication are unit-tested; the Windows-only location test runs in CI on `windows-latest`. On a real machine, note that scanning a WSL distribution starts it if it was stopped.
+- **The default branch over the network on hosted remotes.** `ls-remote --symref` was tested against a local bare repository, not against GitHub with real credentials.
 
 - **Windows 11 and WSL 2.** The development environment is a Linux container without Windows or WSL. The Windows branches (cmd.exe services, taskkill tree termination, Chrome discovery, Explorer) and the WSL branches (wsl.exe Git, `setsid` process groups, `--list --verbose` parsing, UNC paths, `/mnt` conversion) are covered by unit tests of the exact commands they construct, not by running them. The CI workflow runs the unit and integration suite on `windows-latest` (passing, run 2 of the CI workflow), which exercises the native Windows code for real: Git through Git for Windows, services through `cmd.exe`, tree termination through `taskkill`, including grandchild processes and the forced stop after the grace period. WSL is not available on hosted runners. Please run the scenario on a Windows 11 machine with a WSL repository before relying on the WSL path.
 - **The Windows installer** is built by CI on `windows-latest` (electron-builder, NSIS and zip, uploaded as the `GitManager-windows-x64` artifact). It has not been installed and launched on a Windows desktop.

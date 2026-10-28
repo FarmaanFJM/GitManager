@@ -68,7 +68,7 @@
 /* ---------- services ---------- */
 .gm-services { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .gm-toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 16px 8px 12px; flex: none; }
-.gm-toolbar .select.quiet { font-weight: 600; color: var(--text); }
+.gm-svc-title { padding: 0 6px 0 8px; white-space: nowrap; }
 .gm-panel-empty { padding-left: 20px; }
 .gm-svc-list { list-style: none; margin: 0; padding: 0 0 8px; flex: none; max-height: 40%; overflow: auto; }
 .gm-svc { display: grid; grid-template-columns: 16px minmax(96px, 160px) minmax(0, 1fr) minmax(0, 180px) 72px 64px; align-items: center; column-gap: 12px;
@@ -154,3 +154,64 @@
   .gm-svc { grid-template-columns: 16px minmax(80px, 140px) minmax(0, 1fr) 72px 64px; }
   .gm-svc-target { display: none; }
 }
+
+/* ---------- branches (rows follow the service and commit rows; the detail is a content pane like the Project Manager detail) ---------- */
+.gm-branches { display: flex; flex: 1; min-height: 0; }
+.gm-branch-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; container: bl / inline-size; }
+.gm-branch-toolbar { gap: 10px; padding-left: 20px; }
+.gm-branch-search { width: 220px; flex: none; }
+.gm-branch-toolbar .gm-label { white-space: nowrap; }
+.gm-branch-meta { padding: 0 20px 8px; font-size: var(--fs-sm); color: var(--text-2); }
+.gm-branch-problem { display: flex; align-items: center; gap: 8px; margin: 0 20px 10px; color: var(--warn); font-size: var(--fs-sm); }
+.gm-btable { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.gm-bhead, .gm-brow { display: grid; grid-template-columns: 20px minmax(160px, 1.4fr) 64px 64px 64px 88px 104px minmax(0, 1.2fr) 76px; align-items: center; column-gap: 12px; padding: 0 12px; margin: 0 8px; }
+.gm-bhead { min-height: 34px; font-size: var(--fs-sm); color: var(--text-3); box-shadow: inset 0 -1px 0 var(--line); margin: 0 20px 4px; padding: 0; }
+.gm-bhead > span:first-child { margin-left: 0; }
+.gm-th { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 6px; margin: 0 -6px; border-radius: var(--r-sm); color: var(--text-3); font-weight: 500; }
+.gm-th:hover { color: var(--text); background: var(--s2); }
+.gm-th.on { color: var(--text); }
+.gm-th > svg { opacity: 0; }
+.gm-th.on > svg { opacity: 1; }
+.gm-col-num { text-align: right; justify-content: flex-end; display: flex; font-size: var(--fs-sm); }
+.gm-bbody { flex: 1; min-height: 0; padding-bottom: 24px; }
+.gm-brow { width: calc(100% - 16px); min-height: 38px; border-radius: var(--r); text-align: left; transition: background var(--dur); cursor: default; }
+.gm-brow:hover { background: var(--s2); }
+.gm-brow.selected { background: var(--select); }
+.gm-brow.sk { display: flex; gap: 14px; }
+.gm-bmark { display: grid; place-items: center; color: var(--text); }
+.gm-bname { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 500; }
+.gm-bstate { font-size: var(--fs-sm); color: var(--text-2); }
+.gm-cmp-base { color: var(--text); }
+.gm-cmp-diverged { color: var(--warn); }
+.gm-cmp-unrelated { color: var(--text-3); }
+.gm-col-up, .gm-col-date, .gm-col-kind { font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gm-col-date { text-align: right; }
+.gm-col-commit { font-size: var(--fs-sm); }
+@container bl (max-width: 900px) {
+  .gm-bhead, .gm-brow { grid-template-columns: 20px minmax(140px, 1fr) 64px 64px 88px 76px; }
+  .gm-col-kind, .gm-col-up, .gm-col-commit { display: none; }
+}
+@container bl (max-width: 620px) { .gm-branch-search { width: 150px; } }
+
+.gm-bdetail { flex: 0 0 clamp(360px, 38%, 500px); min-width: 0; display: flex; flex-direction: column; min-height: 0; box-shadow: -1px 0 0 var(--line); }
+.gm-bdetail-head { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px 0 20px; flex: none; }
+.gm-bdetail-body { flex: 1; min-height: 0; padding: 0 0 24px; }
+.gm-props { display: grid; grid-template-columns: 112px minmax(0, 1fr); row-gap: 8px; column-gap: 12px; margin: 4px 20px 0; font-size: var(--fs-sm); }
+.gm-props dt { color: var(--text-2); }
+.gm-props dd { margin: 0; min-width: 0; color: var(--text); }
+.gm-bdetail-actions { padding: 16px 20px 4px; display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); }
+.gm-bdetail .gm-section > .gm-section-h { padding: 18px 20px 6px; }
+.gm-files { list-style: none; margin: 0; padding: 0 20px; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); }
+.gm-files li { display: flex; gap: 10px; min-height: 24px; align-items: center; }
+.gm-fstatus { width: 14px; flex: none; font: 600 12px var(--mono); color: var(--text-2); }
+.gm-files .gm-mono { font-size: 12.5px; }
+
+/* ---------- discovery ---------- */
+.gm-discovery { display: flex; align-items: center; gap: 8px; padding: 8px 10px 4px; font-size: var(--fs-sm); color: var(--text-2); }
+.gm-discovery .sm-spinner { width: 12px; height: 12px; }
+.gm-switch-row { display: flex; align-items: center; gap: 12px; min-height: 32px; }
+.gm-ignored-row { display: flex; align-items: center; gap: 12px; min-height: 40px; margin: 0 -12px; padding: 0 4px 0 12px; border-radius: var(--r); }
+.gm-ignored-row:hover { background: var(--s2); }
+
+/* GitManager's Summa logo in Summa-UI's brand row (replaces .brand-mark; same 22-24px footprint) */
+.gm-brand-logo { display: block; flex: none; width: 24px; height: 24px; margin: -1px -1px -1px -2px; }

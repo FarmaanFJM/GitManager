@@ -9,8 +9,9 @@ const METHODS = [
   'switchBranch', 'trackBranch', 'log', 'compare', 'openFolder', 'openEditor', 'openUrl', 'wslDistros', 'addRoot', 'removeRoot',
   'scanRoot', 'addRepos', 'draftProfile', 'saveProfile', 'removeProfile', 'selectProfile', 'previewLaunch', 'trustProfile',
   'startServices', 'stopServices', 'restartService', 'logs', 'clearLogs', 'saveSettings',
+  'discoveryStatus', 'rescan', 'unignoreRepo', 'branchOverview', 'branchDetail', 'setCompareBase',
 ]
-const EVENTS = ['service-status', 'service-logs', 'logs-cleared']
+const EVENTS = ['service-status', 'service-logs', 'logs-cleared', 'discovery-status', 'repo-added']
 
 const api: Record<string, unknown> = {}
 for (const m of METHODS) api[m] = (...args: unknown[]) => ipcRenderer.invoke(`gm:${m}`, ...args)

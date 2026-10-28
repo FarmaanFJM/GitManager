@@ -21,6 +21,8 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1320, height: 860, minWidth: 920, minHeight: 600, show: false, title: 'GitManager',
     backgroundColor: '#141515', autoHideMenuBar: true,
+    // Taskbar and title bar icon. The packaged .exe carries the same icon from build/icon.ico (electron-builder).
+    icon: path.join(app.getAppPath(), 'assets', 'brand', process.platform === 'win32' ? 'GitManager-Summa.ico' : 'GitManager-Summa-256.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true, spellcheck: false,
@@ -80,6 +82,8 @@ app.whenReady().then(() => {
   registerIpc(backend, isTrustedUrl)
   forwardEvents(backend, () => win?.webContents ?? null)
   createWindow()
+  // Automatic discovery runs in the background once the window is up, at every launch, unless the user turned it off.
+  win?.webContents.once('did-finish-load', () => { if (store.data.settings.autoDiscover) void backend.discovery.run('common') })
   app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus() } })
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow() })
 })

@@ -25,6 +25,8 @@ jobs:
       - run: npm ci
       - name: Verify the pinned Summa-UI release
         run: npm run verify:summa-ui
+      - name: Verify the logo assets and packaging icons
+        run: npm run verify:branding
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
@@ -68,6 +70,11 @@ jobs:
       - run: npm run build
       - name: Build installer and portable zip (unsigned)
         run: npx electron-builder --win --x64 --publish never
+      - name: Verify the GitManager icon is embedded (not the default Electron icon)
+        shell: bash
+        run: |
+          node scripts/verify-branding.mjs --exe release/win-unpacked/GitManager.exe
+          node scripts/verify-branding.mjs --exe "$(ls release/GitManager-*-x64.exe | head -1)"
       - uses: actions/upload-artifact@v5
         with:
           name: GitManager-windows-x64

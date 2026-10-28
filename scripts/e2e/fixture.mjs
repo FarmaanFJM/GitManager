@@ -39,3 +39,18 @@ export function buildFixture(root, { wgetrc } = {}) {
   sh(join(local, 'backend'), './mvnw', ['-q', '-B', '-DskipTests', 'compile'], wgetrc ? { WGETRC: wgetrc } : {})
   return { root, remote, local, teammate }
 }
+
+/** A home folder for automatic discovery: repositories, a linked worktree, a submodule, a dependency folder and a too-deep repository. */
+export function buildHome(home) {
+  const init = (dir, msg) => { mkdirSync(dir, { recursive: true }); git(dir, 'init', '-q', '-b', 'main'); git(dir, 'config', 'user.name', 'Me'); git(dir, 'config', 'user.email', 'me@example.com'); commitFile(dir, 'README.md', `# ${msg}\n`, msg); return dir }
+  const projects = join(home, 'Projects')
+  const openings = init(join(home, 'code', 'openings'), 'Openings')
+  const engine = init(join(projects, 'chess-engine'), 'Engine')
+  git(engine, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', openings, 'vendored-lib')
+  git(engine, 'commit', '-q', '-m', 'Add submodule')
+  const review = join(projects, 'chess-engine-review')
+  git(engine, 'worktree', 'add', '-q', review, '-b', 'review')
+  init(join(projects, 'site', 'node_modules', 'left-pad'), 'dependency')
+  init(join(projects, 'a', 'b', 'c', 'd', 'too-deep'), 'too deep')
+  return { home, engine, review, openings }
+}

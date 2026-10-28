@@ -1,5 +1,16 @@
 import { useMemo, useState } from 'react'
-import { Brand, Icon, MenuButton, NavItem, SearchInput } from '../../third_party/summa-ui/src/ui'
+import { Icon, MenuButton, NavItem, SearchInput } from '../../third_party/summa-ui/src/ui'
+import logo from '../../assets/brand/GitManager-Summa.svg'
+
+/** Summa-UI's brand row (.brand) with GitManager's own logo in place of the generic mark (see docs/BRANDING.md). */
+function Brand() {
+  return (
+    <div className="brand">
+      <img className="gm-brand-logo" src={logo} width={24} height={24} alt="" />
+      <span>GitManager</span>
+    </div>
+  )
+}
 import type { Actions, Model, View } from './App'
 
 /**
@@ -25,7 +36,7 @@ export function Sidebar({ model, actions, view }: { model: Model; actions: Actio
 
   return (
     <div className="gm-side">
-      <Brand name="GitManager" />
+      <Brand />
       {repos.length > 0 && (
         <SearchInput className="gm-repo-search" placeholder="Search" aria-label="Search repositories" value={q} onChange={e => setQ(e.target.value)}
           onKeyDown={e => { if (e.key === 'Escape') setQ(''); if (e.key === 'ArrowDown') { e.preventDefault(); document.querySelector<HTMLElement>('.gm-repo-list .nav-item')?.focus() } }} />
@@ -35,6 +46,8 @@ export function Sidebar({ model, actions, view }: { model: Model; actions: Actio
         <MenuButton icon="plus" size="sm" label="Add repositories" items={[
           { label: 'Add repository…', icon: 'folder-open', onSelect: actions.addRepoDialog },
           { label: 'Find repositories in a folder…', icon: 'search', onSelect: actions.findReposDialog },
+          { type: 'sep' },
+          { label: 'Rescan for repositories', icon: 'refresh', disabled: !!model.discovery?.running, onSelect: () => actions.rescan('common') },
         ]} />
       </div>
       <nav className="gm-repo-list col scroll grow" aria-label="Repositories" onKeyDown={onKeyDown}>
@@ -44,7 +57,7 @@ export function Sidebar({ model, actions, view }: { model: Model; actions: Actio
           const current = view.kind !== 'settings' && model.data.ui.selectedRepoId === r.id
           return (
             <button key={r.id} type="button" className="nav-item" aria-current={current ? 'true' : undefined} onClick={() => actions.select(r.id)}
-              title={r.location.kind === 'wsl' ? `${r.location.distro}: ${r.location.path}` : r.location.path}>
+              title={`${r.location.kind === 'wsl' ? `${r.location.distro}: ${r.location.path}` : r.location.path}${r.worktree ? ' (worktree)' : ''}`}>
               <Icon name="folder" size={16} />
               <span className="truncate">{r.name}</span>
               <span className="gm-nav-meta">
@@ -56,6 +69,9 @@ export function Sidebar({ model, actions, view }: { model: Model; actions: Actio
         })}
         {repos.length > 0 && !shown.length && <p className="gm-side-empty faint">No matches</p>}
       </nav>
+      {model.discovery?.running && (
+        <p className="gm-discovery" role="status"><span className="sm-spinner" aria-hidden="true" />Finding repositories{model.discovery.added ? `, ${model.discovery.added} added` : ''}</p>
+      )}
       <div className="gm-side-foot">
         <NavItem icon="settings" label="Settings" current={view.kind === 'settings'} onClick={() => actions.setView({ kind: 'settings' })} />
       </div>
@@ -66,7 +82,7 @@ export function Sidebar({ model, actions, view }: { model: Model; actions: Actio
 Sidebar.Skeleton = function SidebarSkeleton() {
   return (
     <div className="gm-side" aria-busy="true">
-      <Brand name="GitManager" />
+      <Brand />
       <div className="gm-side-head"><span className="eyebrow">Repositories</span></div>
       {[64, 48, 72].map((w, i) => <div key={i} className="gm-sk-nav"><span className="skeleton" style={{ width: `${w}%`, height: 10 }} /></div>)}
     </div>

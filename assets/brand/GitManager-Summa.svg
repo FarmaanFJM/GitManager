@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+<title id="title">GitManager icon, Summa visual identity</title>
+<!-- Transparent outside the rounded charcoal tile. Exact color from screenshot. -->
+<rect x="48" y="48" width="928" height="928" rx="198" fill="#1B1C1C"/>
+<!-- Git-branch symbol, one flat emerald color, no gradients or effects. -->
+<g stroke="#10B981" stroke-width="54" fill="none" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M350 345 V690"/>
+  <path d="M350 595 C350 478 440 478 585 478 H680"/>
+  <circle cx="350" cy="286" r="62"/>
+  <circle cx="350" cy="750" r="62"/>
+  <circle cx="745" cy="478" r="62"/>
+</g>
+</svg>

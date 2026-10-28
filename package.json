@@ -23,7 +23,8 @@
     "verify:summa-ui": "node scripts/summa-ui/verify-vendored.mjs third_party/summa-ui/guidance summa-ui.lock.json && node scripts/summa-ui/verify-reference.mjs summa-ui.lock.json",
     "record:usage": "node scripts/summa-ui/record-guidance-usage.mjs --app gitmanager --lock summa-ui.lock.json --repository https://github.com/FarmaanFJM/GitManager --out summa-ui.usage.json",
     "package:win": "npm run build && electron-builder --win --x64",
-    "package:dir": "npm run build && electron-builder --dir"
+    "package:dir": "npm run build && electron-builder --dir",
+    "verify:branding": "node scripts/verify-branding.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
@@ -35,6 +36,7 @@
     "playwright": "^1.64.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "resedit": "^1.7.2",
     "typescript": "^7.0.2",
     "vite": "^8.3.5",
     "vitest": "^5.0.5"
@@ -47,7 +49,9 @@
     },
     "files": [
       "dist/**/*",
-      "package.json"
+      "package.json",
+      "assets/brand/GitManager-Summa.ico",
+      "assets/brand/GitManager-Summa-256.png"
     ],
     "asar": true,
     "win": {
@@ -65,25 +69,34 @@
           ]
         }
       ],
-      "artifactName": "GitManager-${version}-${arch}.${ext}"
+      "artifactName": "GitManager-${version}-${arch}.${ext}",
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "GitManager"
     },
     "linux": {
       "target": [
         "dir"
       ],
-      "category": "Development"
+      "category": "Development",
+      "icon": "build/icon.png"
     },
     "mac": {
       "target": [
         "dir"
       ],
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.png"
     }
   }
 }

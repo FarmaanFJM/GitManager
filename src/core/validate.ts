@@ -135,5 +135,6 @@ export function settings(v: unknown): Settings {
     editor: str(v.editor ?? 'code', 'Editor command', { max: 512 }).trim(),
     chromePath: str(v.chromePath ?? '', 'Chrome path', { max: 1024 }).trim(),
     discoveryDepth: int(v.discoveryDepth ?? 3, 'Search depth', 1, 6),
+    autoDiscover: v.autoDiscover === undefined ? true : v.autoDiscover === true,
   }
 }

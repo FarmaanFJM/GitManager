@@ -1,8 +1,8 @@
 // The complete surface the renderer can reach, exposed by the preload script as window.gitmanager.
 // Every call is a request to the main process, which validates the arguments. Type-only module.
 import type {
-  Branch, Commit, Comparison, DiscoveredRepo, Location, LogBatch, LogLine, Platform, Profile, RemoteCheck, Repo, RepoStatus,
-  Result, Root, ServiceStatus, Settings,
+  Branch, BranchDetail, BranchOverview, Commit, Comparison, DiscoveredRepo, DiscoveryStatus, IgnoredRepo, Location, LogBatch, LogLine,
+  Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, Root, ServiceStatus, Settings,
 } from './types.js'
 
 export type AppState = {
@@ -13,6 +13,9 @@ export type AppState = {
   ui: { selectedRepoId: string | null; selectedProfile: Record<string, string> }
   services: ServiceStatus[]
   warning: string | null
+  ignored: IgnoredRepo[]
+  compareBase: Record<string, string>
+  discovery: DiscoveryStatus
 }
 
 export type Distros = { available: boolean; distros: { name: string; isDefault: boolean; version: number | null }[]; error?: string }
@@ -23,6 +26,8 @@ export type ApiEvents = {
   'service-status': ServiceStatus
   'service-logs': LogBatch
   'logs-cleared': string
+  'discovery-status': DiscoveryStatus
+  'repo-added': Repo
 }
 
 export interface GitManagerApi {
@@ -69,6 +74,14 @@ export interface GitManagerApi {
 
   saveSettings(settings: Settings): Promise<Result<Settings>>
 
+  discoveryStatus(): Promise<DiscoveryStatus>
+  rescan(scope: 'common' | 'deep'): Promise<Result<DiscoveryStatus>>
+  unignoreRepo(key: string): Promise<Result<void>>
+
+  branchOverview(repoId: string): Promise<Result<BranchOverview>>
+  branchDetail(repoId: string, ref: string, baseRef: string): Promise<Result<BranchDetail>>
+  setCompareBase(repoId: string, ref: string | null): Promise<Result<void>>
+
   on<K extends keyof ApiEvents>(event: K, cb: (payload: ApiEvents[K]) => void): () => void
 }
 
@@ -78,4 +91,5 @@ export const API_METHODS = [
   'switchBranch', 'trackBranch', 'log', 'compare', 'openFolder', 'openEditor', 'openUrl', 'wslDistros', 'addRoot', 'removeRoot',
   'scanRoot', 'addRepos', 'draftProfile', 'saveProfile', 'removeProfile', 'selectProfile', 'previewLaunch', 'trustProfile',
   'startServices', 'stopServices', 'restartService', 'logs', 'clearLogs', 'saveSettings',
+  'discoveryStatus', 'rescan', 'unignoreRepo', 'branchOverview', 'branchDetail', 'setCompareBase',
 ] as const satisfies readonly Exclude<keyof GitManagerApi, 'on'>[]

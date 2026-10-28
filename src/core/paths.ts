@@ -78,12 +78,24 @@ export function displayLocation(loc: Location): string {
   return loc.kind === 'wsl' ? `${loc.distro}: ${loc.path}` : loc.path
 }
 
+/**
+ * One identity for a folder however it was written: Windows paths compare case-insensitively with either separator,
+ * \\wsl.localhost\<distro>\x and \\wsl$\<distro>\x are the WSL path /x, and a WSL path under /mnt/<drive> is the Windows
+ * drive path it mirrors. Used to deduplicate repositories found through different representations.
+ */
+export function locationKey(loc: Location): string {
+  if (loc.kind === 'native') {
+    const unc = WSL_UNC.exec(loc.path)
+    if (unc) return locationKey({ kind: 'wsl', distro: unc[1], path: '/' + (unc[2] ?? '').replace(/\\/g, '/') })
+    return flavorOf(loc.path) === 'win32' ? `win:${normalizePath(loc.path, 'win32').toLowerCase()}` : `posix:${normalizePath(loc.path, 'posix')}`
+  }
+  const drive = wslToWindowsDrive(loc.path)
+  if (drive) return `win:${drive.toLowerCase()}`
+  return `wsl:${loc.distro.toLowerCase()}:${normalizePath(loc.path, 'posix')}`
+}
+
 export function sameLocation(a: Location, b: Location): boolean {
-  if (a.kind !== b.kind) return false
-  if (a.kind === 'wsl' && b.kind === 'wsl') return a.distro.toLowerCase() === b.distro.toLowerCase() && normalizePath(a.path, 'posix') === normalizePath(b.path, 'posix')
-  const f = flavorOf(a.path)
-  const na = normalizePath(a.path, f), nb = normalizePath(b.path, flavorOf(b.path))
-  return f === 'win32' ? na.toLowerCase() === nb.toLowerCase() : na === nb
+  return locationKey(a) === locationKey(b)
 }
 
 export function baseName(loc: Location): string {

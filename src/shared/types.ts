@@ -13,7 +13,14 @@ export type Repo = {
   name: string
   location: Location
   addedAt: string
+  /** manual: added by the user; discovered: registered by automatic discovery. */
+  source?: 'manual' | 'discovered'
+  /** A linked worktree of another repository (its .git is a file pointing into <repo>/.git/worktrees). */
+  worktree?: boolean
 }
+
+/** A repository the user removed or ignored; discovery never registers it again. */
+export type IgnoredRepo = { key: string; location: Location; at: string }
 
 export type Root = { id: string; location: Location; depth: number }
 
@@ -88,6 +95,8 @@ export type Settings = {
   editor: string // command, e.g. "code"
   chromePath: string // empty: auto-detect
   discoveryDepth: number
+  /** Scan common development folders and WSL home folders at every launch. */
+  autoDiscover: boolean
 }
 
 export type ServiceState = 'stopped' | 'starting' | 'running' | 'ready' | 'stopping' | 'failed'
@@ -108,10 +117,83 @@ export type LogLine = { seq: number; stream: 'out' | 'err' | 'sys'; text: string
 
 export type LogBatch = { key: string; lines: LogLine[] }
 
-export type DiscoveredRepo = { location: Location; name: string; registered: boolean }
+export type DiscoveredRepo = { location: Location; name: string; registered: boolean; worktree?: boolean }
 
 export type OpError = { code: string; message: string; detail?: string }
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: OpError }
 
 export type Platform = { os: 'windows' | 'mac' | 'linux'; wslAvailable: boolean; dataPath: string; version: string }
+
+/** The ref every branch is compared with. `source` says how it was determined; nothing is guessed. */
+export type BranchBase = {
+  ref: string // full ref, e.g. refs/remotes/origin/main
+  name: string // origin/main
+  source: 'remote-head' | 'ls-remote' | 'user'
+  remote: string | null
+  oid: string
+}
+
+export type CompareState = 'base' | 'up-to-date' | 'ahead' | 'behind' | 'diverged' | 'unrelated' | 'unknown'
+export type UpstreamState = 'in-sync' | 'ahead' | 'behind' | 'diverged' | 'gone' | 'none'
+
+export type BranchRow = {
+  ref: string
+  name: string
+  kind: 'local' | 'remote'
+  remote?: string
+  oid: string
+  short: string
+  current: boolean
+  isBase: boolean
+  upstream?: string
+  upstreamState: UpstreamState
+  upstreamAhead: number
+  upstreamBehind: number
+  /** Against the base: commits only on this branch (ahead) and only on the base (behind). Null when there is no base. */
+  ahead: number | null
+  behind: number | null
+  compare: CompareState
+  date: number
+  subject: string
+  author: string
+}
+
+export type BranchOverview = {
+  base: BranchBase | null
+  baseProblem: string | null
+  remotes: string[]
+  branches: BranchRow[]
+  detached: boolean
+  head: string | null
+  /** When the remote-tracking refs were last updated by a fetch (FETCH_HEAD), so remote data is not mistaken for live. */
+  lastFetch?: number | null
+}
+
+export type ChangedFile = { status: 'A' | 'M' | 'D' | 'R' | 'C' | 'T' | 'U' | 'X'; path: string; from?: string }
+
+export type BranchDetail = {
+  ref: string
+  name: string
+  baseRef: string
+  baseName: string
+  mergeBase: string | null
+  unique: Commit[]
+  missing: Commit[]
+  latest: Commit | null
+  files: ChangedFile[]
+  filesTotal: number
+  stat: string
+}
+
+export type DiscoveryStatus = {
+  running: boolean
+  scope: 'common' | 'deep' | null
+  locationsScanned: number
+  locationsTotal: number
+  found: number
+  added: number
+  startedAt: string | null
+  finishedAt: string | null
+  errors: string[]
+}

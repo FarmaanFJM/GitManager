@@ -18,4 +18,8 @@
 
 ## Development only (not shipped)
 
-TypeScript (Apache-2.0), Vite and @vitejs/plugin-react (MIT), Vitest (MIT), Playwright (Apache-2.0), electron-builder (MIT), @types packages (MIT). The acceptance fixture downloads Vite (MIT), Spring Boot (Apache-2.0) and generates an Apache Maven Wrapper script (Apache-2.0) at test time; none of them are committed.
+TypeScript (Apache-2.0), Vite and @vitejs/plugin-react (MIT), Vitest (MIT), Playwright (Apache-2.0), electron-builder (MIT), resedit (MIT, reads icon resources in `scripts/verify-branding.mjs`), @types packages (MIT). The acceptance fixture downloads Vite (MIT), Spring Boot (Apache-2.0) and generates an Apache Maven Wrapper script (Apache-2.0) at test time; none of them are committed.
+
+## Brand assets
+
+`assets/brand/` holds the GitManager logo (SVG, PNG and ICO) and the Summa logo system description, supplied by the project owner for GitManager. `build/icon.ico` and `build/icon.png` are copies of the supplied ICO and 512 px PNG.

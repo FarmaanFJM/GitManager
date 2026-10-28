@@ -1,7 +1,10 @@
 import { spawn } from 'node:child_process'
 import type { AppState, Distros, LaunchPreview } from '../shared/api.js'
-import type { DiscoveredRepo, Location, OpError, Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, Root, ServiceStatus, Settings } from '../shared/types.js'
+import type { BranchDetail, BranchOverview, DiscoveredRepo, DiscoveryStatus, Location, OpError, Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, Root, ServiceStatus, Settings } from '../shared/types.js'
+import { homedir } from 'node:os'
+import { AutoDiscovery } from '../core/autodiscovery.js'
 import { discover } from '../core/discovery.js'
+import { BranchInspector } from '../core/git/branches.js'
 import { hostOs, listWslDistros, type HostOs } from '../core/exec.js'
 import { Git } from '../core/git/ops.js'
 import { classifySync, isClean } from '../core/git/status.js'
@@ -35,10 +38,16 @@ export class Backend {
   constructor(
     readonly store: Store,
     private readonly host: Host,
-    readonly opts: { os?: HostOs; git?: Git; services?: ServiceManager; readFile?: FileReader } = {},
+    readonly opts: { os?: HostOs; git?: Git; services?: ServiceManager; readFile?: FileReader; discovery?: AutoDiscovery; home?: string } = {},
   ) {
     this.services = opts.services ?? new ServiceManager({ os: opts.os })
+    this.inspector = new BranchInspector()
+    // GITMANAGER_HOME points discovery at another home folder (tests, or a user who keeps code elsewhere).
+    this.discovery = opts.discovery ?? new AutoDiscovery(store, { os: opts.os ?? hostOs(), home: opts.home ?? process.env.GITMANAGER_HOME ?? homedir() })
   }
+
+  readonly inspector: BranchInspector
+  readonly discovery: AutoDiscovery
 
   private get os() { return this.opts.os ?? hostOs() }
   private get git() { return this.opts.git ?? (this.opts.git = new Git()) }
@@ -69,7 +78,7 @@ export class Backend {
 
   state(): AppState {
     const d = this.store.data
-    return { repos: d.repos, roots: d.roots, profiles: d.profiles, settings: d.settings, ui: d.ui, services: this.services.list(), warning: this.store.loadWarning }
+    return { repos: d.repos, roots: d.roots, profiles: d.profiles, settings: d.settings, ui: d.ui, services: this.services.list(), warning: this.store.loadWarning, ignored: d.ignored, compareBase: d.compareBase, discovery: this.discovery.status }
   }
 
   pickFolder() { return this.host.pickFolder() }
@@ -127,6 +136,7 @@ export class Backend {
     const repo = this.repo(id)
     return this.exclusive(repo.id, async () => {
       const r = await this.git.fetch(repo.location)
+      this.inspector.invalidate(repo.id)
       // a successful fetch also proves the remote is reachable
       if (r.ok && r.value.remote !== 'all remotes') this.remoteChecks.set(repo.id, { remote: r.value.remote, reachable: true, checkedAt: new Date().toISOString() })
       return r
@@ -137,6 +147,7 @@ export class Backend {
     const repo = this.repo(id)
     return this.exclusive(repo.id, async (): Promise<Result<{ commits: number }>> => {
       const r = await this.git.pull(repo.location)
+      this.inspector.invalidate(repo.id)
       return r.ok ? ok({ commits: r.value.commits }) : r
     })
   }
@@ -161,7 +172,7 @@ export class Backend {
     const name = v.str(branch, 'Branch', { max: 255, allowEmpty: false })
     const guard = this.runningGuard(repo)
     if (guard) return { ok: false, error: guard }
-    return this.exclusive(repo.id, () => this.git.switchBranch(repo.location, name))
+    return this.exclusive(repo.id, async () => { const r = await this.git.switchBranch(repo.location, name); this.inspector.invalidate(repo.id); return r })
   }
 
   async trackBranch(id: unknown, remoteRef: unknown): Promise<Result<{ branch: string }>> {
@@ -169,7 +180,7 @@ export class Backend {
     const ref = v.str(remoteRef, 'Remote branch', { max: 255, allowEmpty: false })
     const guard = this.runningGuard(repo)
     if (guard) return { ok: false, error: guard }
-    return this.exclusive(repo.id, () => this.git.trackRemote(repo.location, ref))
+    return this.exclusive(repo.id, async () => { const r = await this.git.trackRemote(repo.location, ref); this.inspector.invalidate(repo.id); return r })
   }
 
   async openFolder(id: unknown): Promise<Result<void>> {
@@ -223,7 +234,7 @@ export class Backend {
     if (!root) return err('NOT_FOUND', 'That folder is no longer in the list.')
     const r = await discover(root.location, root.depth)
     if (!r.ok) return r
-    return ok(r.value.map(location => ({ location, name: location.path.split(/[\\/]/).filter(Boolean).pop() ?? location.path, registered: !!this.store.findRepoByLocation(location) })))
+    return ok(r.value.map(({ location, worktree }) => ({ location, worktree, name: location.path.split(/[\\/]/).filter(Boolean).pop() ?? location.path, registered: !!this.store.findRepoByLocation(location) })))
   }
 
   /** Registers repositories picked from a discovery result. Each must still be a repository under a registered root. */
@@ -234,7 +245,7 @@ export class Backend {
       const loc: Location = v.location(raw)
       const underRoot = this.store.data.roots.some(r => r.location.kind === loc.kind && (r.location.kind !== 'wsl' || (loc.kind === 'wsl' && r.location.distro === loc.distro)) && (loc.path.toLowerCase().startsWith(r.location.path.toLowerCase()) || sameLocation(r.location, loc)))
       if (!underRoot) continue
-      if ((await this.git.verifyRepo(loc)).ok) added.push(this.store.addRepo(loc).repo)
+      if ((await this.git.verifyRepo(loc)).ok) added.push(this.store.addRepo(loc, { source: 'manual' }).repo)
     }
     return ok(added)
   }
@@ -328,6 +339,47 @@ export class Backend {
 
   logs(key: unknown) { return this.services.logs(v.str(key, 'key', { max: 140 })) }
   clearLogs(key: unknown) { this.services.clearLogs(v.str(key, 'key', { max: 140 })) }
+
+  /* ------------------------------------------------------------ automatic discovery */
+
+  discoveryStatus(): DiscoveryStatus { return this.discovery.status }
+
+  /** Starts a scan in the background and returns at once; progress arrives as events. 'deep' also searches whole drives. */
+  async rescan(scope: unknown): Promise<Result<DiscoveryStatus>> {
+    const s = scope === 'deep' ? 'deep' : 'common'
+    void this.discovery.run(s)
+    return ok(this.discovery.status)
+  }
+
+  async unignoreRepo(key: unknown): Promise<Result<void>> {
+    this.store.unignore(v.str(key, 'Key', { max: 4096, allowEmpty: false }))
+    return ok(undefined)
+  }
+
+  /* ------------------------------------------------------------ branch overview (read-only) */
+
+  async branchOverview(id: unknown): Promise<Result<BranchOverview>> {
+    const repo = this.repo(id)
+    return this.inspector.overview(repo.id, repo.location, { chosen: this.store.data.compareBase[repo.id] ?? null })
+  }
+
+  async branchDetail(id: unknown, ref: unknown, baseRef: unknown): Promise<Result<BranchDetail>> {
+    const repo = this.repo(id)
+    return this.inspector.detail(repo.location, v.str(baseRef, 'Base', { max: 512, allowEmpty: false }), v.str(ref, 'Branch', { max: 512, allowEmpty: false }))
+  }
+
+  /** Persists the comparison base for a repository (a branch name such as main or origin/main), or clears it with null. */
+  async setCompareBase(id: unknown, ref: unknown): Promise<Result<void>> {
+    const repo = this.repo(id)
+    if (ref === null) delete this.store.data.compareBase[repo.id]
+    else {
+      const name = v.str(ref, 'Branch', { max: 255, allowEmpty: false })
+      if (name.startsWith('-') || /[\s~^:?*[\\]|\.\./.test(name)) throw new v.ValidationError('That is not a branch name.')
+      this.store.data.compareBase[repo.id] = name
+    }
+    this.store.save()
+    return ok(undefined)
+  }
 
   async saveSettings(raw: unknown): Promise<Result<Settings>> {
     const s = v.settings(raw)

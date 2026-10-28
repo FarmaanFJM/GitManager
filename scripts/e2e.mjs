@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import electronPath from 'electron'
 import { _electron } from 'playwright'
-import { buildFixture, commitFile, git } from './e2e/fixture.mjs'
+import { buildFixture, buildHome, commitFile, git } from './e2e/fixture.mjs'
 import { runSummaChecks } from './summa-ui/checks.mjs'
 
 const args = process.argv.slice(2)
@@ -19,6 +19,7 @@ const OUT = join(process.cwd(), 'e2e-output')
 rmSync(OUT, { recursive: true, force: true }); mkdirSync(OUT, { recursive: true })
 const work = mkdtempSync(join(tmpdir(), 'gm-e2e-'))
 const dataDir = join(work, 'data')
+const homeDir = join(work, 'home') // GITMANAGER_HOME: the home folder automatic discovery scans
 const report = { startedAt: new Date().toISOString(), environment: { platform: process.platform, node: process.version }, steps: [] }
 let step = 0
 const log = (ok, name, detail = '') => { report.steps.push({ step: ++step, name, ok, detail }); console.log(`${ok ? 'PASS' : 'FAIL'} ${String(step).padStart(2)} ${name}${detail ? `: ${detail}` : ''}`) }
@@ -39,7 +40,7 @@ function chromeLauncher() {
 
 let app, page
 async function launch() {
-  app = await _electron.launch({ executablePath: electronPath, args: ['.', '--no-sandbox'], env: { ...process.env, GITMANAGER_DATA_DIR: dataDir } })
+  app = await _electron.launch({ executablePath: electronPath, args: ['.', '--no-sandbox'], env: { ...process.env, GITMANAGER_DATA_DIR: dataDir, GITMANAGER_HOME: homeDir } })
   app.process().stderr.on('data', d => { const t = d.toString(); if (!/dbus|Debugger|debugging|Picked up/i.test(t)) process.stderr.write('[app] ' + t) })
   page = await app.firstWindow({ timeout: 30000 })
   page.on('pageerror', e => console.log('[pageerror]', e.message))
@@ -71,13 +72,25 @@ async function main() {
   const chrome = chromeLauncher()
   report.environment.chrome = chrome ? 'Chromium via test launcher' : 'not found'
 
-  // 1. Open GitManager
-  await launch()
-  await shot('01-first-run')
-  check(await page.getByText('No repositories yet.').isVisible(), 'Open GitManager: first-run empty state')
+  const home = buildHome(homeDir)
 
-  // 2. Register an existing local repository
-  await page.getByRole('button', { name: 'Add repository' }).click()
+  // 1. Open GitManager: automatic discovery registers the repositories in the home folder's development folders
+  await launch()
+  const nav = (name) => page.locator('.gm-repo-list .nav-item', { hasText: new RegExp(`^${name}`) })
+  await nav('chess-engine-review').waitFor({ timeout: 30000 })
+  await page.locator('.gm-discovery').waitFor({ state: 'detached', timeout: 30000 })
+  await shot('01-first-run-discovery')
+  const navNames = await page.locator('.gm-repo-list .nav-item .truncate').allInnerTexts()
+  check(navNames.includes('chess-engine') && navNames.includes('chess-engine-review') && navNames.includes('openings'),
+    'Open GitManager: discovery registered repositories and a worktree from the home folder', navNames.join(', '))
+  check(!navNames.includes('left-pad') && !navNames.includes('vendored-lib') && !navNames.includes('too-deep'),
+    'Discovery skipped dependency folders, submodules and folders beyond the depth')
+  check((await nav('chess-engine-review').getAttribute('title')).includes('(worktree)'), 'Worktree recognized')
+  check(git(home.engine, 'status', '--porcelain') === '' && git(home.engine, 'stash', 'list') === '', 'Discovery left the repositories untouched')
+
+  // 2. Register an existing local repository (outside the scanned folders) from the sidebar's add menu
+  await page.getByRole('button', { name: 'Add repositories' }).click()
+  await page.getByRole('menuitem', { name: 'Add repository…' }).click()
   await page.getByLabel('Folder').fill(fx.local)
   await shot('02-add-repository')
   await page.getByRole('dialog').getByRole('button', { name: 'Add repository' }).click()
@@ -133,8 +146,32 @@ async function main() {
   check(git(fx.local, 'rev-parse', '--abbrev-ref', 'HEAD') === 'feature/board-themes' && readFileSync(join(fx.local, 'README.md'), 'utf8').includes('My local notes'), 'Switch branch, local work kept', 'tracking feature/board-themes')
   check(git(fx.local, 'rev-parse', '--abbrev-ref', '@{upstream}') === 'origin/feature/board-themes', 'Tracking branch created from the remote branch')
 
+  // Branch overview: every branch against the remote's default branch, inspected without checking anything out
+  const headAtInspect = git(fx.local, 'rev-parse', 'HEAD'), statusAtInspect = git(fx.local, 'status', '--porcelain')
+  await page.getByRole('tab', { name: /^Branches/ }).click()
+  const brow = (name) => page.locator('.gm-brow').filter({ has: page.locator('.gm-bname', { hasText: new RegExp(`^${name.replace(/\//g, '\\/')}(Default|, checked out)?$`) }) })
+  await brow('origin/feature/board-themes').waitFor()
+  const cells = async (name) => (await brow(name).locator('[role=cell]').allInnerTexts()).map(t => t.trim())
+  const themes = await cells('origin/feature/board-themes')
+  check(themes[3] === '0' && themes[4] === '1' && themes[5] === 'Ahead', 'Branches: origin/feature/board-themes 1 ahead, 0 behind origin/main', themes.slice(3, 6).join(' / '))
+  check((await cells('origin/main'))[5] === 'Default' && (await brow('origin/main').locator('.tag').innerText()) === 'Default', 'Branches: default branch detected from the remote and marked')
+  check(await brow('feature/board-themes').first().locator('[aria-label="Checked out"]').count() === 1, 'Branches: checked-out branch marked without relying on colour')
+  await brow('origin/feature/board-themes').click()
+  await page.locator('.gm-bdetail').getByText('Only on origin/feature/board-themes').waitFor()
+  await page.locator('.gm-files li', { hasText: 'THEMES.md' }).waitFor()
+  await shot('05-branches')
+  await evaluate('05-branches')
+  check(git(fx.local, 'rev-parse', 'HEAD') === headAtInspect && git(fx.local, 'status', '--porcelain') === statusAtInspect && git(fx.local, 'stash', 'list') === '',
+    'Branch inspection changed nothing (HEAD, working tree, stash)')
+  // Selecting another repository and coming back opens the Overview again
+  await nav('chess-engine').first().click()
+  await page.getByRole('heading', { name: 'chess-engine' }).waitFor()
+  await nav('caissa-trainer').click()
+  await page.getByRole('heading', { name: 'caissa-trainer' }).waitFor()
+  check(await page.getByRole('tab', { name: 'Overview' }).getAttribute('aria-selected') === 'true', 'Returning to a repository opens its Overview')
+
   // 8. Configure and select a development profile
-  await page.getByRole('tab', { name: 'Services' }).click()
+  await page.getByRole('tab', { name: 'Overview' }).click()
   await page.getByRole('button', { name: 'Create profile' }).click()
   await page.getByLabel('Name', { exact: true }).fill('CaissaTrainer')
   await page.getByLabel('Open when ready').fill('http://localhost:5173')
@@ -154,8 +191,8 @@ async function main() {
   await svc.nth(1).getByLabel('Port').fill('8080')
   await svc.nth(1).getByLabel('Wait up to (seconds)').fill('240')
   if (wgetrc) await svc.nth(1).getByLabel('Environment variables').fill(`WGETRC=${wgetrc}`)
-  await shot('05-profile-editor')
-  await evaluate('05-profile-editor')
+  await shot('06-profile-editor')
+  await evaluate('06-profile-editor')
   await page.getByRole('button', { name: 'Save' }).click()
   await page.locator('.gm-svc-name', { hasText: 'Backend' }).waitFor()
   check(await page.locator('.gm-toolbar .select', { hasText: 'CaissaTrainer' }).isVisible(), 'Profile saved and selected')
@@ -163,14 +200,14 @@ async function main() {
   // 9. Start frontend and backend (after the one-time trust confirmation)
   await page.getByRole('button', { name: 'Run', exact: true }).click()
   await page.getByRole('dialog', { name: 'Run CaissaTrainer?' }).waitFor()
-  await shot('06-trust-confirmation')
+  await shot('07-trust-confirmation')
   await page.getByRole('button', { name: 'Trust and run' }).click()
   await page.locator('.gm-svc-state', { hasText: 'Starting' }).first().waitFor({ timeout: 10000 })
 
   // 10. Startup progress and logs, independently per service
   await page.locator('.gm-svc', { hasText: 'Backend' }).click()
   await page.waitForTimeout(2500)
-  await shot('07-services-starting')
+  await shot('08-services-starting')
   const sawStarting = await page.locator('.gm-svc', { hasText: 'Backend' }).locator('.gm-svc-state').innerText()
   log(true, 'Backend shows Starting before it is reachable', sawStarting)
   const frontReady = await waitFor(async () => (await page.locator('.gm-svc', { hasText: 'Frontend' }).locator('.gm-svc-state').innerText()) === 'Ready', 60000)
@@ -178,8 +215,8 @@ async function main() {
   const backReady = await waitFor(async () => (await page.locator('.gm-svc', { hasText: 'Backend' }).locator('.gm-svc-state').innerText()) === 'Ready', 240000, 1000)
   check(backReady, 'Backend Ready when port 8080 accepts connections')
   check(await page.locator('.gm-log-line', { hasText: 'Started App' }).first().isVisible(), 'Backend log captured (Spring Boot output)')
-  await shot('08-services-ready')
-  await evaluate('08-services-ready')
+  await shot('09-services-ready')
+  await evaluate('09-services-ready')
   await page.locator('.gm-svc', { hasText: 'Frontend' }).click()
   await page.locator('.gm-log-line', { hasText: /VITE|Local:/ }).first().waitFor()
   check(true, 'Frontend log captured (Vite output)')
@@ -190,8 +227,8 @@ async function main() {
     await page.getByLabel('Chrome location').fill(chrome)
     await page.getByRole('button', { name: 'Save' }).click()
     await page.waitForTimeout(300)
-    await shot('09-settings')
-  await evaluate('09-settings')
+    await shot('10-settings')
+  await evaluate('10-settings')
     await page.locator('.gm-repo-list .nav-item', { hasText: 'caissa-trainer' }).click()
     await page.getByRole('button', { name: 'Open in browser' }).click()
     const opened = await waitFor(async () => {
@@ -205,7 +242,7 @@ async function main() {
   await page.getByRole('button', { name: /^Branch: feature/ }).click()
   await page.getByRole('option', { name: 'main' }).click()
   await page.getByRole('dialog', { name: 'Stop services to switch branches?' }).waitFor()
-  await shot('10-switch-guard')
+  await shot('11-switch-guard')
   await page.getByRole('button', { name: 'Cancel' }).click()
   check(git(fx.local, 'rev-parse', '--abbrev-ref', 'HEAD') === 'feature/board-themes', 'Switch while services run requires stopping them first', 'cancelled, branch unchanged')
 
@@ -216,20 +253,35 @@ async function main() {
   const portsFree = !(await portOpen(5173)) && !(await portOpen(8080))
   const javaAfter = spawnSync('pgrep', ['-f', 'demo.App']).stdout.toString().trim()
   check(stopped && portsFree && !!javaBefore && !javaAfter, 'Stop both services: process trees ended, ports freed', `JVM ${javaBefore || '?'} gone`)
-  await shot('11-stopped')
+  await shot('12-stopped')
+
+  // Removing a discovered repository: the folder stays, and discovery does not add it back
+  await nav('chess-engine-review').click()
+  await page.getByRole('heading', { name: 'chess-engine-review' }).waitFor()
+  await page.getByRole('button', { name: 'More actions' }).click()
+  await page.getByRole('menuitem', { name: 'Remove from GitManager' }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Remove repository' }).click()
+  await nav('chess-engine-review').waitFor({ state: 'detached' })
+  check(existsSync(home.review), 'Remove a discovered repository: the folder stays on disk')
+  await nav('caissa-trainer').click()
+  await page.getByRole('heading', { name: 'caissa-trainer' }).waitFor()
 
   // 13. Close and reopen: registration and configuration persist
   await closeApp()
   await launch()
   await page.getByRole('heading', { name: 'caissa-trainer' }).waitFor()
+  await page.waitForTimeout(1500)
+  await page.locator('.gm-discovery').waitFor({ state: 'detached', timeout: 30000 })
+  const afterRestart = await page.locator('.gm-repo-list .nav-item .truncate').allInnerTexts()
+  check(afterRestart.includes('chess-engine') && !afterRestart.includes('chess-engine-review'), 'Reopen: discovery ran again, the removed repository stayed removed', afterRestart.join(', '))
   await page.locator('.gm-svc-name', { hasText: 'Backend' }).waitFor()
   const persisted = (await page.locator('.gm-toolbar .select').innerText()).includes('CaissaTrainer') && (await page.locator('.gm-branch').innerText()).includes('feature/board-themes')
   check(persisted, 'Reopen: repository, profile and selection restored')
-  await shot('12-reopened')
+  await shot('13-reopened')
   await page.getByRole('button', { name: 'Profile', exact: true }).click()
   await page.getByLabel('Search Profile').fill('Staging')
   await page.getByRole('button', { name: /Create profile/ }).waitFor()
-  await shot('14-profile-dropdown-create')
+  await shot('15-profile-dropdown-create')
   await page.keyboard.press('Escape')
 
   // Unsafe operation refused without damage: a diverged branch is never merged, rebased or reset
@@ -244,8 +296,8 @@ async function main() {
   const tree = git(fx.local, 'status', '--porcelain')
   await page.getByRole('button', { name: /Pull 1/ }).click()
   await page.locator('.gm-banner', { hasText: 'diverged' }).waitFor()
-  await shot('13-unsafe-pull-refused')
-  await evaluate('13-unsafe-pull-refused')
+  await shot('14-unsafe-pull-refused')
+  await evaluate('14-unsafe-pull-refused')
   check(git(fx.local, 'rev-parse', 'HEAD') === head && git(fx.local, 'status', '--porcelain') === tree && !existsSync(join(fx.local, 'remote.txt')) && git(fx.local, 'stash', 'list') === '',
     'Unsafe pull on a diverged branch refused, repository unchanged')
 

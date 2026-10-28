@@ -27,19 +27,23 @@ GitManager does not consume `main` and will not change version silently. Moving 
 | --- | --- | --- |
 | Tokens, theme, surfaces | `guidance/css/tokens.css` | Charcoal s0 to s4, emerald accent, neutral focus and selection. No colour defined outside the tokens. |
 | Base controls | `src/styles/base.css` | `.btn` variants, `.icon-btn`, `.input`, `.select`, `.tabs`, `.nav-item`, `.list-row`, `.popover`, `.menu-item`, `.dialog`, `.skeleton`, `.eyebrow`, focus ring. |
-| Window layout | `AppShell`, `Brand`, `NavItem`, `DrawerToggle` | Dark page, lighter main panel, 252 px sidebar, Settings in a lower sidebar region (P14). |
+| Window layout | `AppShell`, `.brand` row, `NavItem`, `DrawerToggle` | Dark page, lighter main panel, 252 px sidebar, Settings in a lower sidebar region (P14). The brand row shows GitManager's logo (D4). |
 | Repository search | `SearchInput` | |
 | Add menu, More actions | `MenuButton`, `Menu` | Destructive "Remove from GitManager" is last, after a separator, danger text and icon (P19 exception for menus). |
 | Profile, runtime, browser, readiness, depth selects | `Dropdown` | Profile select is creatable: "Create profile" sits inside the list (P10, AP-009). |
 | Branch picker | `Popover` + `.menu-search`, `.menu-list`, `.menu-heading`, `.menu-item` | Same pieces as `Dropdown`; see deviation D2. |
-| Services and History | `Tabs` | |
+| Overview, Branches, History; All, Local, Remote | `Tabs` (and the flat variant) | Overview is the landing view for every repository; Branches and History are details on demand. |
+| Branch search, comparison base | `SearchInput`, `Dropdown` (searchable) | The base selector offers "Detect automatically" once a base was chosen by hand. |
+| Branch table and detail pane | `.list-row` row treatment, `--select` selection, Project Manager detail-pane geometry | See D5. |
+| Discovery progress | `preset.loading-state` inline spinner | One quiet line in the sidebar while a scan runs; repositories appear as they are found. |
+| Automatic discovery setting | `Switch` | |
 | Dialogs (add, find, trust) | `Dialog` | Focus trap, inert background, Esc. |
 | Confirmations (remove repository, delete profile, stop services to switch) | `preset.confirm-dialog` (`useConfirm`) | Destructive variant for removal and deletion, standard variant for stopping services. |
 | Copy output, browser fallback notice | `preset.notification` (`useToast`) | Used only where nothing else in the window shows the result. The preset is provisional in v0.1.0. |
 | Empty states | `preset.empty-state` (`.sm-empty`) | One statement, at most one action, no illustration. |
-| Loading | `preset.loading-state` (`.skeleton`, `.sm-spinner`) | Skeletons for facts, history and the sidebar; inline spinner on Fetch, Pull and Save with the label kept. |
+| Loading | `preset.loading-state` (`.skeleton`, `.sm-spinner`) | Skeletons for facts, history, branches and the sidebar; inline spinner on Fetch, Pull and Save with the label kept. |
 | Checkbox in Find repositories | `Checkbox` | |
-| Icons | `Icon` (catalog, Lucide 1.62.0) | 13 icons, all from the catalog, one stroke weight. |
+| Icons | `Icon` (catalog, Lucide 1.62.0) | 21 icons, all from the catalog, one stroke weight. |
 | Layout measurements | Project Manager reference | 52 px top bar, 20 px content gutter, 40 px rows with 8 px row inset, 15 px titles, muted group headings. |
 
 Side-by-side with the laboratory references (left: Summa-UI at the release tag, right: GitManager, same window size):
@@ -64,18 +68,20 @@ These are arrangements of existing tokens and classes for GitManager's content, 
 | D1 | Emerald state dots for Ready services and a small emerald marker in the sidebar for repositories with running services. CHK-012 counts these as accent fills (4 on the busiest screen, 0.1 % of the window) and asks for human review. | P15 allows emerald for meaningful state. Ready is the state the user waits for; making it neutral would remove the only fast signal that the app can be opened. The dot is always paired with the word. Filed as FB-0005 because the guidance does not define this pattern. |
 | D2 | Branch picker built from `Popover` and menu classes instead of `Dropdown`. | The picker needs two groups (local branches, remote branches that create a tracking branch). `Dropdown` cannot render group headings. Visuals and keyboard behaviour are those of `Dropdown`. Filed as FB-0007. |
 | D3 | The profile `Dropdown` always shows its search field, even with one or two profiles. | `preset.dropdown` says not to show a search field for 7 options or fewer, but its creatable variant needs a text field to type the new name. Creation inside the list (AP-009) won. Filed as FB-0006. |
+| D4 | The sidebar's brand row shows GitManager's Summa logo (charcoal tile, emerald branch symbol) instead of `Brand`'s emerald square with the generic `layers` icon. | The owner's application logo system gives each application its own symbol; the `.brand` row's layout, type and spacing are kept. The guidance has no rule for application identity; filed as FB-0010. See [BRANDING.md](BRANDING.md). |
+| D5 | The branch table is a CSS grid with `role=table` semantics, sortable header buttons and a detail pane, composed from existing tokens and row treatments. | No table preset exists; the only table is local to the File Manager laboratory app. The header button, hairline header rule (`--line`), quiet selected row (`--select`) and detail-pane geometry follow the File Manager and Project Manager references. Filed as FB-0011. |
 
-`summa-ui.usage.json` records no principle exceptions: none of these breaks a principle; D1 to D3 resolve gaps or conflicts in the guidance.
+`summa-ui.usage.json` records no principle exceptions: none of these breaks a principle; D1 to D5 resolve gaps or conflicts in the guidance.
 
 ## Summa-UI checks
 
-The acceptance run applies Summa-UI's own evaluator (`scripts/lib/collector.mjs` from the release, copied unchanged, plus the keyboard focus walk from `run-checks.mjs`) to five live screens at 1320 x 860: behind after fetch (History), profile editor, services ready with output, Settings, and the refused pull with its banner. Results are in [`acceptance-report.json`](acceptance-report.json) under `summaChecks`.
+The acceptance run applies Summa-UI's own evaluator (`scripts/lib/collector.mjs` from the release, copied unchanged, plus the keyboard focus walk from `run-checks.mjs`) to six live screens at 1320 x 860: behind after fetch (History), the Branches tab with a branch open, profile editor, services ready with output, Settings, and the refused pull with its banner. Results are in [`acceptance-report.json`](acceptance-report.json) under `summaChecks`.
 
 | Check | Result |
 | --- | --- |
-| CHK-001 nested borders, CHK-002 left borders, CHK-003 and CHK-019 destructive buttons, CHK-006 initials avatars, CHK-008 Send and Stop together, CHK-011 stacked sidebars, CHK-013 gradients and glow, CHK-017 em dashes, CHK-021 overflow | pass on all five screens |
+| CHK-001 nested borders, CHK-002 left borders, CHK-003 and CHK-019 destructive buttons, CHK-006 initials avatars, CHK-008 Send and Stop together, CHK-011 stacked sidebars, CHK-013 gradients and glow, CHK-017 em dashes, CHK-021 overflow | pass on all six screens |
 | CHK-018 focus contrast, CHK-022 focus removed, CHK-004 accent focus (30 focus stops per screen) | pass |
-| CHK-012 accent overuse (heuristic) | needs human on the services screen: 4 accent fills, 0.1 % of the window (see D1) |
+| CHK-012 accent overuse (heuristic) | pass on all six screens in the latest run. With the logo replacing the emerald brand square, the services screen has three accent fills (two Ready dots, the running marker), below the heuristic's threshold. An earlier run, before the logo, reported needs-human with four (see D1). |
 | CHK-020 touch targets, CHK-007 mobile density | not applicable: desktop application, minimum window 920 x 600 |
 | CHK-005, 009, 010, 014, 015, 016 (heuristic, not implemented by the evaluator) | reviewed by hand: no decorative tags, Create is inside the dropdown, copy limited to consequences (readiness without a check, where configuration is stored, trust), no indentation, one surface per group, frequent actions visible and the rest in the More menu |
 
@@ -97,6 +103,8 @@ These are the implementer's answers; the prompts exist for a person to judge, so
 - Settings: the empty "Repository folders" line was indented 20 px beyond the form edge (P11). Fixed.
 - The profile dropdown's in-list Create was unreachable with six or fewer profiles because the search field was hidden. Fixed (D3).
 - The first fixture left `package-lock.json` untracked; GitManager correctly reported "1 untracked". Fixture fixed; noted because it shows the status is real.
+- At the minimum window size the repository name truncated before its path, and the service command column was squeezed. Fixed.
+- The branch table's Behind and Ahead headers did not fit their 56 px columns with the sort arrow. Widened to 64 px.
 
 ## Guidance feedback filed in summa-ui
 
@@ -111,5 +119,7 @@ Recorded with `npm run feedback` in the summa-ui repository (branch `claude/sere
 | FB-0007 | guidance-gap | `preset.dropdown` and the React `Dropdown` have no grouped variant (section headings), which a branch picker and many pickers need. |
 | FB-0008 | guidance-ambiguity | The filled `stop` icon (Lucide `square`) in a 28 px icon button next to list rows reads like a filled checkbox. Low confidence; the owner may judge it not a problem. |
 | FB-0009 | guidance-gap | The vendored bundle fails `verify-vendored.mjs` on Windows checkouts (Git for Windows converts it to CRLF). The integration contract does not mention line endings; GitManager fixed it with `.gitattributes`. |
+| FB-0010 | guidance-gap | No rule for application identity: Summa-UI's `Brand` mark (emerald square, generic icon) differs from the owner's application logo system (charcoal tile, per-application emerald symbol). |
+| FB-0011 | guidance-gap | No data table preset (header row, sortable headers, numeric alignment, selection, collapse rules); the only implementation is local to the File Manager laboratory app. |
 
 The registry `feedback/applications.json` only accepts applications with a path inside summa-ui, so GitManager is registered as an external, non-regression application whose path is a copy of its usage record (`feedback/external/gitmanager.usage.json`). The owner may prefer a dedicated field for external applications.

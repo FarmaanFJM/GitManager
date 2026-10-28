@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import net from 'node:net'
 import { join } from 'node:path'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
@@ -105,5 +105,39 @@ describe('preload surface', () => {
     const list = /const METHODS = \[([\s\S]*?)\]/.exec(src)![1].match(/'([^']+)'/g)!.map(s => s.slice(1, -1))
     expect(list).toEqual([...API_METHODS])
     expect(src).not.toMatch(/require\(|from '(?!electron|\.\.\/shared\/api\.js)/)
+  })
+})
+
+describe('discovery and branch overview through the backend', () => {
+  it('remembers removals, persists a chosen comparison base and validates it', async () => {
+    const { f, b, cfgFile } = setup()
+    const r = await b.addRepo(f.local); if (!r.ok) throw new Error()
+    const id = r.value.repo.id
+    const ov = await b.branchOverview(id)
+    expect(ov.ok && ov.value.base?.name).toBe('origin/main')
+    await expect(b.setCompareBase(id, '--output=x')).rejects.toThrow(/branch name/)
+    await b.setCompareBase(id, 'main')
+    expect(new Store(cfgFile).data.compareBase[id]).toBe('main')
+    const chosen = await b.branchOverview(id)
+    expect(chosen.ok && chosen.value.base).toMatchObject({ name: 'main', source: 'user' })
+    await b.setCompareBase(id, null)
+    expect(new Store(cfgFile).data.compareBase[id]).toBeUndefined()
+    await b.removeRepo(id)
+    const s = new Store(cfgFile)
+    expect(s.data.ignored).toHaveLength(1)
+    expect(s.isIgnored({ kind: 'native', path: f.local })).toBe(true)
+  })
+
+  it('loads a configuration written before discovery existed, keeping everything', () => {
+    const t = tempDir(); cleanups.push(t.cleanup)
+    const file = join(t.dir, 'gitmanager.json')
+    writeFileSync(file, JSON.stringify({ schemaVersion: 1, repos: [{ id: 'r1', name: 'app', location: { kind: 'native', path: '/x/app' }, addedAt: '' }], roots: [], profiles: [],
+      settings: { editor: 'code', chromePath: '', discoveryDepth: 3 }, ui: { selectedRepoId: 'r1', selectedProfile: {} } }))
+    const s = new Store(file)
+    expect(s.loadWarning).toBeNull()
+    expect(s.data.repos[0]).toMatchObject({ id: 'r1', source: 'manual' })
+    expect(s.data.settings.autoDiscover).toBe(true)
+    expect(s.data.ignored).toEqual([])
+    expect(s.data.ui.selectedRepoId).toBe('r1')
   })
 })

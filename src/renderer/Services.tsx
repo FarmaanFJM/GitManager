@@ -87,6 +87,7 @@ export function ServicesPanel({ model, actions, repo, onError, toast }: { model:
 
   if (!profile) return (
     <div className="sm-empty gm-panel-empty">
+      <h2 className="gm-section-h">Development services</h2>
       <p className="sm-empty__text">No development profile yet. Add the commands that start this project.</p>
       <Button variant="primary" icon="plus" onClick={() => void newProfile()}>Create profile</Button>
     </div>
@@ -95,6 +96,7 @@ export function ServicesPanel({ model, actions, repo, onError, toast }: { model:
   return (
     <div className="gm-services">
       <div className="gm-toolbar">
+        <h2 className="gm-section-h gm-svc-title">Development services</h2>
         <Dropdown label="Profile" quiet width={280} value={profile.id} searchable options={profiles.map(p => ({ value: p.id, label: p.name }))}
           onCreate={name => { void newProfile(name); return undefined }} createNoun="profile"
           onChange={id => { void api.selectProfile(repo.id, id).then(actions.reload) }} />
