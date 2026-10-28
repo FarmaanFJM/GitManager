@@ -228,7 +228,11 @@ async function main() {
   check(!scaledProblems.length && scaled.devicePixelRatio === 1.5, 'Title bar at 150 %: same layout in device-independent pixels', scaledProblems.join('; ') || `caption buttons ${scaled.captionWidth}px at ${scaled.devicePixelRatio}x`)
   await capture('w04-scaled-150')
 
-  // 12. The close button quits (no services running), then uninstalling removes the startup entry
+  // 12. The close button quits (no services running), then uninstalling removes the startup entry. A normally scaled
+  // instance: a forced scale factor is not the display's, so page points would not map to screen pixels.
+  await quit()
+  await launch()
+  await setBounds({ x: 40, y: 30, width: 960, height: 660 }); await sleep(600)
   await mouse('click', await captionX(2), 18)
   const p2 = app.process()
   check(await Promise.race([new Promise(r => p2.once('exit', () => r(true))), sleep(15000).then(() => false)]), 'Window: the close button quits GitManager')
