@@ -8,7 +8,7 @@ A CaissaTrainer-shaped project (`scripts/e2e/template`): `frontend/` with `npm r
 
 For automatic discovery the run also builds a home folder (`GITMANAGER_HOME`): `Projects/chess-engine` with a submodule and a linked worktree `Projects/chess-engine-review`, `code/openings`, a repository inside `Projects/site/node_modules`, and one five levels deep.
 
-## Results: 47 of 47 steps passed
+## Results: 48 of 48 steps passed
 
 | # | Scenario step | Verified by |
 | --- | --- | --- |
@@ -36,7 +36,8 @@ For automatic discovery the run also builds a home folder (`GITMANAGER_HOME`): `
 | 37-40 | Minimize to system tray | no tray icon while the setting is off; switched on and saved in Settings, General: the icon appears with Open GitManager and Quit GitManager; minimizing hides the window; clicking the icon restores it |
 | 41-42 | Launched at sign-in, Start minimized | started with `--launched-at-login`: the window stays hidden behind the tray icon; no service is running and the repository's `HEAD`, branch and working tree are unchanged |
 | 43-44 | Single instance | a second GitManager process exits with code 0 and the hidden window is shown; the tray icon goes away with it (Minimize to system tray off) |
-| 45-47 | Tray quit, manual launch | a hidden window always has the tray icon; Quit GitManager ends the process; a launch without the argument opens the window although Start minimized is on |
+| 45 | Title bar after a hidden start | once the window that started hidden is shown, the title bar layout is active (the defect the Windows scenario found) |
+| 46-48 | Tray quit, manual launch | a hidden window always has the tray icon; Quit GitManager ends the process; a launch without the argument opens the window although Start minimized is on |
 
 Screenshots of each stage are in [`screenshots/`](screenshots/); `16-title-bar.png` is the whole window as the X server draws it, caption buttons included (Linux draws its own round buttons; Windows draws its native ones, see below). The same scenario also ran Summa-UI's objective checks on six screens (see [SUMMA_UI_ADOPTION.md](SUMMA_UI_ADOPTION.md)).
 
@@ -48,12 +49,33 @@ The automated tests (`npm test`, 101 tests on Linux; one more runs only on Windo
 - Startup and tray: the `--launched-at-login` argument, Start minimized only for that launch, when the tray icon is wanted, defaults off; the startup entry against a fake that behaves like the Run key and Task Manager's StartupApproved key (the installed executable and argument are written, an entry turned off in Task Manager reads as off and is approved again when switched on, nothing is ever written from a development build or off Windows); saving and correcting the settings through the backend; the title bar colours checked against the Summa-UI tokens.
 - Processes, persistence (including a configuration file from before discovery existed), trust, env files and path conversion, as before.
 
+## The installed Windows build
+
+`scripts/e2e-windows.mjs` runs in CI on `windows-latest` after the package is built. It installs the NSIS installer silently for the current user and tests the installed `GitManager.exe`, not a development Electron. Mouse and keyboard input go through Windows (`SetCursorPos`, `mouse_event`, `keybd_event` in `scripts/e2e/win-input.ps1`), so hit testing, the caption buttons and Snap are Windows' own; colours are read from the screen.
+
+| Area | Verified on the installed build |
+| --- | --- |
+| Install | the installer puts `GitManager.exe` in `%LOCALAPPDATA%\Programs\GitManager`; the desktop and Start menu shortcuts start it; the installed executable carries all seven GitManager icon frames |
+| Start | `app.isPackaged`, `process.execPath` is the installed executable; automatic discovery finds a repository in the test home folder on a real Windows file system |
+| Title bar, normal and maximized | the drag strip ends where Windows' caption buttons begin (137 px at 100 %), no control in it is draggable, none sits under the buttons; screen colours: `#141515` beside the logo, `#1B1C1C` next to and behind the caption buttons (no native white or grey bar) |
+| Window behaviour | double-click on the title bar maximizes and restores; the maximize button maximizes and restores; the minimize button minimizes; dragging the title bar moves the window; dragging the corner resizes it; Win+Left snaps it to the left edge at full height (never below the 920 px minimum width) |
+| Display scaling | at a 150 % scale factor the title bar has the same layout in device-independent pixels |
+| Startup entry | off by default and no entry; switched on in Settings, General: `HKCU\...\Run\GitManager` = `"<installed>\GitManager.exe" --launched-at-login`, never `electron.exe`; turned off through Task Manager's StartupApproved record (`03`): Settings shows it off with the reason; switched on again: approved (Electron removes the record) |
+| Tray | icon with Open GitManager and Quit GitManager; the real minimize button hides the window in the tray; clicking the icon restores it; Quit GitManager ends the process |
+| Start at sign-in | started with `--launched-at-login` and Start minimized: the window stays hidden behind the tray icon, no service runs, the repository's `HEAD` and working tree are unchanged, the repository list is intact; the tray icon opens the window |
+| Single instance | a second `GitManager.exe` exits with code 0 and shows the running window, also from the tray |
+| Close and uninstall | the close button quits; the silent uninstaller removes GitManager and its Run and StartupApproved entries |
+
+The scenario found one real defect, fixed before release: the title bar layout was decided once at page load, while the window was still hidden, so on Windows it could stay in the native-frame layout. It now follows the overlay's `geometrychange` event, and both scenarios check a window that started hidden.
+
+![The title bar as Windows draws it on the installed build](screenshots/windows-title-bar.png)
+
 ## Not verified here
 
 - **Discovery on Windows and in WSL 2.** The Windows common locations (`<home>\\source\\repos`, drive-level folders such as `C:\\Projects`, the drive-letter probe), the WSL distribution list and home folder lookup, and the WSL scan running inside a distribution were not run on Windows or WSL. The WSL scan script itself was run with `sh` and `find` on Linux, and the Windows path handling and deduplication are unit-tested; the Windows-only location test runs in CI on `windows-latest`. On a real machine, note that scanning a WSL distribution starts it if it was stopped.
 - **The default branch over the network on hosted remotes.** `ls-remote --symref` was tested against a local bare repository, not against GitHub with real credentials.
 
 - **Windows 11 and WSL 2.** The development environment is a Linux container without Windows or WSL. The Windows branches (cmd.exe services, taskkill tree termination, Chrome discovery, Explorer) and the WSL branches (wsl.exe Git, `setsid` process groups, `--list --verbose` parsing, UNC paths, `/mnt` conversion) are covered by unit tests of the exact commands they construct, not by running them. The CI workflow runs the unit and integration suite on `windows-latest` (passing, run 2 of the CI workflow), which exercises the native Windows code for real: Git through Git for Windows, services through `cmd.exe`, tree termination through `taskkill`, including grandchild processes and the forced stop after the grace period. WSL is not available on hosted runners. Please run the scenario on a Windows 11 machine with a WSL repository before relying on the WSL path.
-- **The Windows installer** is built by CI on `windows-latest` (electron-builder, NSIS and zip, uploaded as the `GitManager-windows-x64` artifact). It has not been installed and launched on a Windows desktop.
+- **The Windows installer on a personal desktop.** CI installs and drives it on `windows-latest` (Windows Server, 1024 x 768, 100 % scaling; see above). Not covered there: a real high-DPI display (only a forced 150 % scale factor), Windows 11's rounded corners and Snap layouts flyout on hover over the maximize button, the tray icon's own mouse handling in the notification area (the scenario triggers the icon's click and menu items in the main process), and an actual sign-in that runs the startup entry (the scenario runs the entry's exact command instead).
 - **Real Google Chrome.** The run recorded here used Chromium; the same scenario also passes in CI on `ubuntu-latest`, where the launcher wraps the runner's Google Chrome. Locally it used Chromium through a small launcher script (a separate profile, `--no-sandbox` because the container runs as root, a debugging port so the test can read the tab). GitManager only received the launcher's path as "Chrome location"; on Windows it finds Chrome in its standard install locations.
 - **Credential prompts.** The fixture remote is a local bare repository. GitManager leaves authentication to Git (credential helpers work; terminal prompts are disabled because there is no terminal); a remote that needs an interactive terminal prompt will fail with an authentication message instead of hanging.
