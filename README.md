@@ -15,7 +15,7 @@ Open GitManager, select a repository, fetch and pull, pick a branch, press Run, 
 - Rescan from the add menu or Settings, and a deeper search of whole drives (or the whole home folder) on request. Discovery only registers repositories: it never pulls, switches, runs commands or writes to a repository.
 - Register repositories yourself from a folder picker, a typed path, or a WSL path (`\\wsl.localhost\Ubuntu\home\me\app`, or `/home/me/app` with a distribution), or search folders you choose.
 - A repository you remove stays removed: discovery remembers it (Settings lists them, with Restore).
-- Searchable list with commits to pull or push and a marker when services are running.
+- Searchable list with commits to pull or push and a marker when services are running. When repositories live in more than one environment, the list is grouped under headings (Windows, then each WSL distribution, for example `WSL (Ubuntu-24.04)`), so a project cloned in both is never ambiguous; searching for a distribution name narrows to it.
 - Remove a repository from GitManager; the folder on disk is never touched.
 
 **Git**

@@ -59,6 +59,7 @@ These are arrangements of existing tokens and classes for GitManager's content, 
 - **Service rows**: `.list-row` geometry in a grid. A state mark (hollow ring stopped, neutral dot running, emerald dot ready, red dot failed, spinner while starting or stopping) plus the state word, so state never depends on colour alone. No status pills (P04).
 - **Output panel**: one `--s2` surface on the `--s1` panel with monospace text. Not a darker terminal well, which would invert elevation (P02). GitManager's own lines (command, directory, ready, stopped) use `--text-2`; stderr is not coloured red because many tools log normally to stderr.
 - **Inline error banner**: `--danger-soft` surface, which the token role reserves for non-button banners, with a recovery message and Git's output behind "Details".
+- **Environment groups in the sidebar**: when repositories live in more than one environment, the list is split into `<section aria-label>` groups headed by `.eyebrow` (Windows first, then each WSL distribution), the pattern of the Atlas reference sidebar's conversation groups. One environment, no headings (P05).
 - **Run and Stop**: one control that turns into its opposite while anything runs, with a 700 ms guard against double clicks (P10, AP-008). Run is the view's single emerald primary action. Pull is a secondary button that appears only when there is something to pull.
 
 ## Deliberate deviations

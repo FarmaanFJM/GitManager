@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Icon, MenuButton, NavItem, SearchInput } from '../../third_party/summa-ui/src/ui'
 import logo from '../../assets/brand/GitManager-Summa.svg'
+import { groupByEnvironment } from './util'
 
 /** Summa-UI's brand row (.brand) with GitManager's own logo in place of the generic mark (see docs/BRANDING.md). */
 function Brand() {
@@ -22,9 +23,30 @@ export function Sidebar({ model, actions, view }: { model: Model; actions: Actio
   const repos = model.data.repos
   const shown = useMemo(() => {
     const n = q.trim().toLowerCase()
-    return n ? repos.filter(r => r.name.toLowerCase().includes(n) || r.location.path.toLowerCase().includes(n)) : repos
+    const env = (r: typeof repos[number]) => r.location.kind === 'wsl' ? `wsl ${r.location.distro}`.toLowerCase() : ''
+    return n ? repos.filter(r => r.name.toLowerCase().includes(n) || r.location.path.toLowerCase().includes(n) || env(r).includes(n)) : repos
   }, [repos, q])
+  // Headings only when repositories live in more than one environment (Windows and a WSL distribution, or two distributions)
+  const grouped = useMemo(() => groupByEnvironment(repos, model.platform.os).length > 1, [repos, model.platform.os])
+  const groups = useMemo(() => groupByEnvironment(shown, model.platform.os), [shown, model.platform.os])
   const running = new Set(Object.values(model.services).filter(s => s.pid !== null).map(s => s.repoId))
+
+  const row = (r: typeof repos[number]) => {
+    const st = model.statuses[r.id]?.status
+    const meta = st ? [st.behind ? `↓${st.behind}` : '', st.ahead ? `↑${st.ahead}` : ''].filter(Boolean).join(' ') : ''
+    const current = view.kind !== 'settings' && model.data.ui.selectedRepoId === r.id
+    return (
+      <button key={r.id} type="button" className="nav-item" aria-current={current ? 'true' : undefined} onClick={() => actions.select(r.id)}
+        title={`${r.location.kind === 'wsl' ? `${r.location.distro}: ${r.location.path}` : r.location.path}${r.worktree ? ' (worktree)' : ''}`}>
+        <Icon name="folder" size={16} />
+        <span className="truncate">{r.name}</span>
+        <span className="gm-nav-meta">
+          {meta && <span className="num" aria-label={[st?.behind ? `${st.behind} to pull` : '', st?.ahead ? `${st.ahead} to push` : ''].filter(Boolean).join(', ')}>{meta}</span>}
+          {running.has(r.id) && <span className="gm-run-dot" role="img" aria-label="Services running" title="Services running" />}
+        </span>
+      </button>
+    )
+  }
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
@@ -51,22 +73,14 @@ export function Sidebar({ model, actions, view }: { model: Model; actions: Actio
         ]} />
       </div>
       <nav className="gm-repo-list col scroll grow" aria-label="Repositories" onKeyDown={onKeyDown}>
-        {shown.map(r => {
-          const st = model.statuses[r.id]?.status
-          const meta = st ? [st.behind ? `↓${st.behind}` : '', st.ahead ? `↑${st.ahead}` : ''].filter(Boolean).join(' ') : ''
-          const current = view.kind !== 'settings' && model.data.ui.selectedRepoId === r.id
-          return (
-            <button key={r.id} type="button" className="nav-item" aria-current={current ? 'true' : undefined} onClick={() => actions.select(r.id)}
-              title={`${r.location.kind === 'wsl' ? `${r.location.distro}: ${r.location.path}` : r.location.path}${r.worktree ? ' (worktree)' : ''}`}>
-              <Icon name="folder" size={16} />
-              <span className="truncate">{r.name}</span>
-              <span className="gm-nav-meta">
-                {meta && <span className="num" aria-label={[st?.behind ? `${st.behind} to pull` : '', st?.ahead ? `${st.ahead} to push` : ''].filter(Boolean).join(', ')}>{meta}</span>}
-                {running.has(r.id) && <span className="gm-run-dot" role="img" aria-label="Services running" title="Services running" />}
-              </span>
-            </button>
-          )
-        })}
+        {grouped
+          ? groups.map(g => (
+            <section key={g.key} className="gm-repo-group" aria-label={g.label}>
+              <h2 className="eyebrow">{g.label}</h2>
+              {g.repos.map(row)}
+            </section>
+          ))
+          : shown.map(row)}
         {repos.length > 0 && !shown.length && <p className="gm-side-empty faint">No matches</p>}
       </nav>
       {model.discovery?.running && (
