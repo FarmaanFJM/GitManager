@@ -1,0 +1,14 @@
+node_modules/
+dist/
+release/
+coverage/
+test-results/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+# local artifacts produced by scripts/e2e.mjs
+e2e-output/
+e2e-output-windows/

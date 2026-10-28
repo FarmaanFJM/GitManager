@@ -1,0 +1,326 @@
+{
+  "startedAt": "2026-10-28T18:04:54.727Z",
+  "environment": {
+    "platform": "linux",
+    "node": "v22.22.0",
+    "chrome": "Chromium via test launcher"
+  },
+  "steps": [
+    {
+      "step": 1,
+      "name": "Open GitManager: discovery registered repositories and a worktree from the home folder",
+      "ok": true,
+      "detail": "chess-engine, chess-engine-review, openings"
+    },
+    {
+      "step": 2,
+      "name": "Discovery skipped dependency folders, submodules and folders beyond the depth",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 3,
+      "name": "Worktree recognized",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 4,
+      "name": "Discovery left the repositories untouched",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 5,
+      "name": "Register an existing repository",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 6,
+      "name": "Current branch shown",
+      "ok": true,
+      "detail": "main"
+    },
+    {
+      "step": 7,
+      "name": "Working tree and sync status shown",
+      "ok": true,
+      "detail": "Clean, Up to date"
+    },
+    {
+      "step": 8,
+      "name": "Remote configured and reachable",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 9,
+      "name": "Uncommitted change detected",
+      "ok": true,
+      "detail": "1 changed"
+    },
+    {
+      "step": 10,
+      "name": "Fetch changes no local branch or file",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 11,
+      "name": "Behind identified",
+      "ok": true,
+      "detail": "2 commits to pull"
+    },
+    {
+      "step": 12,
+      "name": "Incoming commits listed",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 13,
+      "name": "Fast-forward pull",
+      "ok": true,
+      "detail": "HEAD = origin/main, uncommitted notes kept, no stash"
+    },
+    {
+      "step": 14,
+      "name": "Switch branch, local work kept",
+      "ok": true,
+      "detail": "tracking feature/board-themes"
+    },
+    {
+      "step": 15,
+      "name": "Tracking branch created from the remote branch",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 16,
+      "name": "Branches: origin/feature/board-themes 1 ahead, 0 behind origin/main",
+      "ok": true,
+      "detail": "0 / 1 / Ahead"
+    },
+    {
+      "step": 17,
+      "name": "Branches: default branch detected from the remote and marked",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 18,
+      "name": "Branches: checked-out branch marked without relying on colour",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 19,
+      "name": "Branch inspection changed nothing (HEAD, working tree, stash)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 20,
+      "name": "Returning to a repository opens its Overview",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 21,
+      "name": "Profile saved and selected",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 22,
+      "name": "Backend shows Starting before it is reachable",
+      "ok": true,
+      "detail": "Starting"
+    },
+    {
+      "step": 23,
+      "name": "Frontend Ready when http://localhost:5173 responds",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 24,
+      "name": "Backend Ready when port 8080 accepts connections",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 25,
+      "name": "Backend log captured (Spring Boot output)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 26,
+      "name": "Frontend log captured (Vite output)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 27,
+      "name": "Open in Chrome: page loaded and reached the backend through the frontend",
+      "ok": true,
+      "detail": "tab title \"CaissaTrainer · backend UP\""
+    },
+    {
+      "step": 28,
+      "name": "Switch while services run requires stopping them first",
+      "ok": true,
+      "detail": "cancelled, branch unchanged"
+    },
+    {
+      "step": 29,
+      "name": "Stop both services: process trees ended, ports freed",
+      "ok": true,
+      "detail": "JVM 6277 gone"
+    },
+    {
+      "step": 30,
+      "name": "Remove a discovered repository: the folder stays on disk",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 31,
+      "name": "Reopen: discovery ran again, the removed repository stayed removed",
+      "ok": true,
+      "detail": "caissa-trainer, chess-engine, openings"
+    },
+    {
+      "step": 32,
+      "name": "Reopen: repository, profile and selection restored",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 33,
+      "name": "Unsafe pull on a diverged branch refused, repository unchanged",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 34,
+      "name": "Title bar: overlay active, drag strip clear of controls and caption buttons",
+      "ok": true,
+      "detail": "strip 1207x52, caption buttons 113px"
+    },
+    {
+      "step": 35,
+      "name": "Title bar: the caption buttons share the panel surface #1B1C1C",
+      "ok": true,
+      "detail": "rgb(27, 28, 28)"
+    },
+    {
+      "step": 36,
+      "name": "Title bar: Settings and an open dialog keep controls out of the drag strip",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 37,
+      "name": "Tray: no icon while Minimize to system tray is off",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 38,
+      "name": "Tray: icon with Open GitManager and Quit GitManager",
+      "ok": true,
+      "detail": "{\"tooltip\":\"GitManager\",\"items\":[\"Open GitManager\",\"Quit GitManager\"]}"
+    },
+    {
+      "step": 39,
+      "name": "Tray: minimizing hides the window in the tray",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 40,
+      "name": "Tray: clicking the icon restores the window",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 41,
+      "name": "Startup: launched at sign-in with Start minimized, the window waits behind the tray icon",
+      "ok": true,
+      "detail": "{\"visible\":false,\"minimized\":false,\"focused\":false}"
+    },
+    {
+      "step": 42,
+      "name": "Startup: no services started, nothing pulled or switched",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 43,
+      "name": "Single instance: a second launch exits and shows the running window",
+      "ok": true,
+      "detail": "exit 0"
+    },
+    {
+      "step": 44,
+      "name": "Tray: the icon goes away with the window shown (Minimize to system tray is off)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 45,
+      "name": "Title bar: a window that started hidden gets the title bar layout once shown",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 46,
+      "name": "Tray: a hidden window always has the tray icon",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 47,
+      "name": "Tray: Quit GitManager ends the application",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "step": 48,
+      "name": "Startup: a manual launch opens the window although Start minimized is on",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "summaChecks": {
+    "03-behind-after-fetch": {
+      "focusStops": 30,
+      "findings": []
+    },
+    "05-branches": {
+      "focusStops": 30,
+      "findings": []
+    },
+    "06-profile-editor": {
+      "focusStops": 30,
+      "findings": []
+    },
+    "09-services-ready": {
+      "focusStops": 30,
+      "findings": []
+    },
+    "10-settings": {
+      "focusStops": 30,
+      "findings": []
+    },
+    "14-unsafe-pull-refused": {
+      "focusStops": 30,
+      "findings": []
+    }
+  },
+  "result": "passed",
+  "finishedAt": "2026-10-28T18:05:54.204Z"
+}

@@ -1,0 +1,6 @@
+{
+  "name": "caissa-frontend",
+  "private": true,
+  "scripts": { "dev": "vite --port 5173 --strictPort" },
+  "devDependencies": { "vite": "8.3.5" }
+}

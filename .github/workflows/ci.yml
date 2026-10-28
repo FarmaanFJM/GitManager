@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify the pinned Summa-UI release
+        run: npm run verify:summa-ui
+      - name: Verify the logo assets and packaging icons
+        run: npm run verify:branding
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  e2e:
+    name: Acceptance scenario (Linux, Xvfb)
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      - run: npm ci
+      - name: Run the first-release scenario
+        run: xvfb-run -a --server-args="-screen 0 1600x1000x24" npm run test:e2e
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: e2e-output
+          path: e2e-output/
+          if-no-files-found: ignore
+
+  package-windows:
+    name: Windows package
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Build installer and portable zip (unsigned)
+        run: npx electron-builder --win --x64 --publish never
+      - name: Verify the GitManager icon is embedded (not the default Electron icon)
+        shell: bash
+        run: |
+          node scripts/verify-branding.mjs --exe release/win-unpacked/GitManager.exe
+          node scripts/verify-branding.mjs --exe "$(ls release/GitManager-*-x64.exe | head -1)"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: GitManager-windows-x64
+          path: |
+            release/*.exe
+            release/*.zip
+          if-no-files-found: error
+      - name: Install the installer and test the installed build (title bar, startup entry, tray, single instance, uninstall)
+        shell: bash
+        run: node scripts/e2e-windows.mjs "$(ls release/GitManager-*-x64.exe | head -1)"
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: e2e-output-windows
+          path: e2e-output-windows/
+          if-no-files-found: ignore

@@ -1,0 +1,243 @@
+/*
+  GitManager layout. Uses only Summa-UI tokens (third_party/summa-ui/guidance/css/tokens.css) and composes the shared
+  classes from base.css and presets.css (.btn, .select, .nav-item, .tabs, .menu-item, .sm-empty, .sm-spinner, ...).
+  Measurements follow the Project Manager reference: 52px top bar, 20px content gutter, 40px rows, 15px titles.
+  No new colours, no borders around regions: hierarchy is elevation (s0 page, s1 panel, s2 inputs and groups), type and space.
+*/
+
+/* ---------- sidebar ---------- */
+.gm-side { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.gm-repo-search { margin: 0 2px 4px; }
+.gm-side-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 2px 4px 10px; }
+.gm-repo-list { gap: 2px; padding-top: 2px; }
+.gm-nav-meta { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; color: var(--text-3); font-size: var(--fs-sm); flex: none; }
+.nav-item[aria-current="true"] .gm-nav-meta { color: var(--text-2); }
+/* Emerald for a meaningful state only (P15): services from this repository are running. */
+.gm-run-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.gm-side-empty { padding: 8px 10px; font-size: var(--fs-sm); }
+.gm-side-foot { padding-top: 8px; }
+.gm-sk-nav { height: 32px; display: flex; align-items: center; padding: 0 10px; }
+
+/* ---------- main region ---------- */
+.gm-work { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.gm-top { display: flex; align-items: center; gap: 6px; min-height: 52px; padding: 0 16px 0 20px; flex: none; }
+.gm-top > .icon-btn:first-child:not(.mobile-only) { margin-left: -10px; }
+.gm-title { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.gm-h1 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.gm-path { color: var(--text-3); font-size: var(--fs-sm); min-width: 0; }
+.gm-branch { max-width: 260px; min-width: 120px; font-weight: 500; margin-right: 4px; }
+.gm-branch:disabled { opacity: 0.6; cursor: default; }
+.gm-branch-list { max-height: 340px; }
+.gm-mono { font-family: var(--mono); font-size: 13px; }
+.gm-warn { color: var(--warn); }
+.gm-danger { color: var(--danger); }
+.gm-loading-line { display: flex; align-items: center; gap: 10px; padding: 16px 20px; color: var(--text-2); }
+
+/* facts: muted label above value, aligned to the 20px gutter (P11) */
+.gm-facts { display: flex; flex-wrap: wrap; gap: 8px 48px; margin: 0; padding: 4px 20px 16px; flex: none; }
+.gm-fact { display: flex; flex-direction: column; min-width: 0; }
+.gm-fact dt { color: var(--text-3); font-size: var(--fs-sm); }
+.gm-fact dd { margin: 2px 0 0; }
+
+/* inline error: subtle danger surface for a non-button banner (token role of --danger-soft) */
+.gm-banner { display: flex; align-items: flex-start; gap: 10px; margin: 0 16px 12px; padding: 8px 8px 8px 12px; border-radius: var(--r-lg); background: var(--danger-soft); flex: none; }
+.gm-banner-icon { color: var(--danger); margin-top: 3px; flex: none; }
+.gm-banner-body { flex: 1; min-width: 0; padding-top: 2px; }
+.gm-banner-body p { line-height: 1.45; }
+.gm-banner-detail { margin: 8px 0 2px; font: 12.5px/1.5 var(--mono); color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; }
+.gm-banner-btn { height: 28px; padding: 0 8px; font-size: var(--fs-sm); }
+.gm-banner .icon-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.08); }
+
+.gm-tabs-row { display: flex; align-items: center; gap: 8px; padding: 0 20px 4px; flex: none; }
+.gm-scroll { flex: 1; min-height: 0; padding: 4px 0 32px; }
+
+/* sections and commit rows */
+.gm-section-h { display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-sm); font-weight: 600; color: var(--text-2); }
+.gm-section-h .num, .gm-section-h .muted { font-weight: 500; }
+.gm-section > .gm-section-h { padding: 18px 20px 6px; }
+.gm-section:first-child > .gm-section-h { padding-top: 10px; }
+.gm-section-empty { padding: 4px 20px; }
+.gm-commits { list-style: none; margin: 0; padding: 0; }
+.gm-commit { display: flex; align-items: center; gap: 14px; min-height: 36px; margin: 0 8px; padding: 0 12px; border-radius: var(--r); transition: background var(--dur); }
+.gm-commit:hover { background: var(--s2); }
+.gm-hash { width: 64px; flex: none; font: 12.5px var(--mono); color: var(--text-3); }
+.gm-commit-subject { flex: 1; min-width: 0; }
+.gm-commit-author { width: 140px; flex: none; color: var(--text-2); font-size: var(--fs-sm); text-align: right; }
+.gm-commit-date { width: 76px; flex: none; color: var(--text-2); font-size: var(--fs-sm); text-align: right; white-space: nowrap; }
+
+/* ---------- services ---------- */
+.gm-services { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.gm-toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 16px 8px 12px; flex: none; }
+.gm-svc-title { padding: 0 6px 0 8px; white-space: nowrap; }
+.gm-panel-empty { padding-left: 20px; }
+.gm-svc-list { list-style: none; margin: 0; padding: 0 0 8px; flex: none; max-height: 40%; overflow: auto; }
+.gm-svc { display: grid; grid-template-columns: 16px minmax(96px, 160px) minmax(0, 1fr) minmax(0, 180px) 72px 64px; align-items: center; column-gap: 12px;
+  min-height: 40px; margin: 0 8px; padding: 0 8px 0 12px; border-radius: var(--r); cursor: default; transition: background var(--dur); }
+.gm-svc:hover { background: var(--s2); }
+.gm-svc.selected { background: var(--select); }
+.gm-svc-name { font-weight: 500; text-align: left; }
+.gm-svc-cmd { font: 12.5px var(--mono); color: var(--text-2); }
+.gm-svc-target { color: var(--text-3); font-size: var(--fs-sm); }
+.gm-svc-state { font-size: var(--fs-sm); color: var(--text-2); }
+.gm-state-ready { color: var(--text); }
+.gm-state-failed { color: var(--danger); }
+.gm-svc-actions { display: flex; justify-content: flex-end; gap: 2px; }
+.gm-svc .icon-btn:hover:not(:disabled) { background: var(--s3); }
+.gm-svc.selected .icon-btn:hover:not(:disabled) { background: var(--s4); }
+.gm-svc-msg { grid-column: 2 / -1; margin: -6px 0 8px; font-size: var(--fs-sm); color: var(--danger); line-height: 1.45; }
+.gm-dot { width: 8px; height: 8px; border-radius: 50%; justify-self: center; }
+.gm-dot-stopped { box-shadow: inset 0 0 0 1.5px var(--text-3); }
+.gm-dot-running { background: var(--text-2); }
+.gm-dot-ready { background: var(--accent); } /* meaningful state (P15) */
+.gm-dot-failed { background: var(--danger); }
+.gm-state-spin { width: 12px; height: 12px; justify-self: center; }
+
+/* output: one lighter surface (s2 on the s1 panel), never a darker terminal well (P02) */
+.gm-log { display: flex; flex-direction: column; flex: 1; min-height: 120px; margin: 4px 16px 16px; border-radius: var(--r-lg); background: var(--s2); overflow: hidden; }
+.gm-log-head { display: flex; align-items: center; gap: 2px; min-height: 40px; padding: 0 8px 0 14px; flex: none; }
+.gm-log-head .icon-btn:hover:not(:disabled) { background: var(--s3); }
+.gm-log-body { flex: 1; min-height: 0; padding: 0 14px 12px; font: 12.5px/1.6 var(--mono); color: var(--text); outline: none; }
+.gm-log-body:focus-visible { box-shadow: inset 0 0 0 1px var(--focus); border-radius: var(--r-lg); }
+.gm-log-line { white-space: pre-wrap; overflow-wrap: anywhere; }
+.gm-log-line.sys { color: var(--text-2); }
+.gm-log-empty { font-family: var(--font); font-size: var(--fs-sm); }
+
+/* trust confirmation */
+.gm-trust-list { list-style: none; margin: 4px 0 4px; padding: 0; display: flex; flex-direction: column; gap: 16px; }
+.gm-trust-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.gm-trust-head strong { font-weight: 600; }
+.gm-code { display: block; padding: 8px 10px; border-radius: var(--r); background: var(--s4); font: 13px/1.5 var(--mono); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.gm-trust-dir { margin-top: 6px; font-size: var(--fs-sm); font-family: var(--mono); }
+
+/* ---------- forms (profile, settings) ---------- */
+.gm-form { display: flex; flex-direction: column; gap: 16px; max-width: 880px; padding: 4px 20px 24px; }
+.gm-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; }
+.gm-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.gm-field.wide { grid-column: 1 / -1; }
+.gm-field > .select { width: 100%; }
+.gm-label { font-size: var(--fs-sm); color: var(--text-2); }
+.gm-hint { margin: 0; font-size: var(--fs-sm); color: var(--text-2); }
+.gm-field-error { margin: 10px 0 0; color: var(--danger); font-size: var(--fs-sm); }
+.gm-form-head { display: flex; align-items: center; gap: 8px; margin-top: 12px; min-height: 32px; }
+.gm-svc-edit { margin: 0; padding: 12px 16px 18px; border: 0; border-radius: var(--r-lg); background: var(--s2); display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.gm-svc-edit-head { display: flex; align-items: center; gap: 8px; }
+.gm-svc-edit-name { max-width: 280px; font-weight: 600; }
+.gm-svc-edit .select { background: var(--s3); }
+.gm-svc-edit .select:hover, .gm-svc-edit .select[aria-expanded="true"] { background: var(--s4); }
+.gm-svc-edit .icon-btn:hover:not(:disabled) { background: var(--s3); }
+.gm-ready { gap: 8px; }
+.gm-ready > .select { flex: none; }
+.gm-port { max-width: 110px; }
+.gm-env { height: auto; min-height: 56px; padding: 8px 10px; line-height: 1.5; resize: vertical; }
+.gm-roots { list-style: none; margin: -8px 0 0; padding: 0; }
+.gm-root-row { display: flex; align-items: center; gap: 12px; min-height: 40px; margin: 0 -12px; padding: 0 4px 0 12px; border-radius: var(--r); }
+.gm-root-row:hover { background: var(--s2); }
+.gm-data-path { margin-top: 20px; font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.gm-data-path .gm-mono { font-size: 12px; }
+
+/* dialogs */
+.gm-where { gap: 12px; }
+.gm-found { list-style: none; margin: 0 -8px; padding: 0; max-height: 320px; overflow: auto; }
+.gm-found-row { min-height: 48px; gap: 12px; }
+.dialog .gm-found-row:hover { background: var(--s4); }
+.gm-found-path { font-size: var(--fs-sm); font-family: var(--mono); }
+.gm-disabled { opacity: 0.45; pointer-events: none; }
+.gm-welcome { flex: 1; justify-content: center; padding-bottom: 12vh; }
+.gm-form .gm-section-empty { padding: 0; margin-top: -8px; }
+
+/* narrow windows: the repository name keeps priority over its path; the readiness target column goes first */
+.gm-title { flex: 0 1 auto; }
+.gm-title .gm-h1 { flex: 0 0 auto; max-width: 260px; }
+.gm-title .gm-path { flex: 1 1 auto; }
+.gm-services { container: svc / inline-size; }
+@container svc (max-width: 760px) {
+  .gm-svc { grid-template-columns: 16px minmax(80px, 140px) minmax(0, 1fr) 72px 64px; }
+  .gm-svc-target { display: none; }
+}
+
+/* ---------- branches (rows follow the service and commit rows; the detail is a content pane like the Project Manager detail) ---------- */
+.gm-branches { display: flex; flex: 1; min-height: 0; }
+.gm-branch-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; container: bl / inline-size; }
+.gm-branch-toolbar { gap: 10px; padding-left: 20px; }
+.gm-branch-search { width: 220px; flex: none; }
+.gm-branch-toolbar .gm-label { white-space: nowrap; }
+.gm-branch-meta { padding: 0 20px 8px; font-size: var(--fs-sm); color: var(--text-2); }
+.gm-branch-problem { display: flex; align-items: center; gap: 8px; margin: 0 20px 10px; color: var(--warn); font-size: var(--fs-sm); }
+.gm-btable { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.gm-bhead, .gm-brow { display: grid; grid-template-columns: 20px minmax(160px, 1.4fr) 64px 64px 64px 88px 104px minmax(0, 1.2fr) 76px; align-items: center; column-gap: 12px; padding: 0 12px; margin: 0 8px; }
+.gm-bhead { min-height: 34px; font-size: var(--fs-sm); color: var(--text-3); box-shadow: inset 0 -1px 0 var(--line); margin: 0 20px 4px; padding: 0; }
+.gm-bhead > span:first-child { margin-left: 0; }
+.gm-th { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 6px; margin: 0 -6px; border-radius: var(--r-sm); color: var(--text-3); font-weight: 500; }
+.gm-th:hover { color: var(--text); background: var(--s2); }
+.gm-th.on { color: var(--text); }
+.gm-th > svg { opacity: 0; }
+.gm-th.on > svg { opacity: 1; }
+.gm-col-num { text-align: right; justify-content: flex-end; display: flex; font-size: var(--fs-sm); }
+.gm-bbody { flex: 1; min-height: 0; padding-bottom: 24px; }
+.gm-brow { width: calc(100% - 16px); min-height: 38px; border-radius: var(--r); text-align: left; transition: background var(--dur); cursor: default; }
+.gm-brow:hover { background: var(--s2); }
+.gm-brow.selected { background: var(--select); }
+.gm-brow.sk { display: flex; gap: 14px; }
+.gm-bmark { display: grid; place-items: center; color: var(--text); }
+.gm-bname { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 500; }
+.gm-bstate { font-size: var(--fs-sm); color: var(--text-2); }
+.gm-cmp-base { color: var(--text); }
+.gm-cmp-diverged { color: var(--warn); }
+.gm-cmp-unrelated { color: var(--text-3); }
+.gm-col-up, .gm-col-date, .gm-col-kind { font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gm-col-date { text-align: right; }
+.gm-col-commit { font-size: var(--fs-sm); }
+@container bl (max-width: 900px) {
+  .gm-bhead, .gm-brow { grid-template-columns: 20px minmax(140px, 1fr) 64px 64px 88px 76px; }
+  .gm-col-kind, .gm-col-up, .gm-col-commit { display: none; }
+}
+@container bl (max-width: 620px) { .gm-branch-search { width: 150px; } }
+
+.gm-bdetail { flex: 0 0 clamp(360px, 38%, 500px); min-width: 0; display: flex; flex-direction: column; min-height: 0; box-shadow: -1px 0 0 var(--line); }
+.gm-bdetail-head { display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px 0 20px; flex: none; }
+.gm-bdetail-body { flex: 1; min-height: 0; padding: 0 0 24px; }
+.gm-props { display: grid; grid-template-columns: 112px minmax(0, 1fr); row-gap: 8px; column-gap: 12px; margin: 4px 20px 0; font-size: var(--fs-sm); }
+.gm-props dt { color: var(--text-2); }
+.gm-props dd { margin: 0; min-width: 0; color: var(--text); }
+.gm-bdetail-actions { padding: 16px 20px 4px; display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); }
+.gm-bdetail .gm-section > .gm-section-h { padding: 18px 20px 6px; }
+.gm-files { list-style: none; margin: 0; padding: 0 20px; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); }
+.gm-files li { display: flex; gap: 10px; min-height: 24px; align-items: center; }
+.gm-fstatus { width: 14px; flex: none; font: 600 12px var(--mono); color: var(--text-2); }
+.gm-files .gm-mono { font-size: 12.5px; }
+
+/* ---------- discovery ---------- */
+.gm-discovery { display: flex; align-items: center; gap: 8px; padding: 8px 10px 4px; font-size: var(--fs-sm); color: var(--text-2); }
+.gm-discovery .sm-spinner { width: 12px; height: 12px; }
+.gm-switch-field { display: flex; flex-direction: column; gap: 2px; }
+.gm-switch-row { display: flex; align-items: center; gap: 12px; min-height: 32px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.gm-switch-row:disabled { opacity: 0.45; }
+.gm-form-head-first { margin-top: 0; }
+.gm-ignored-row { display: flex; align-items: center; gap: 12px; min-height: 40px; margin: 0 -12px; padding: 0 4px 0 12px; border-radius: var(--r); }
+.gm-ignored-row:hover { background: var(--s2); }
+
+/* GitManager's Summa logo in Summa-UI's brand row (replaces .brand-mark; same 22-24px footprint) */
+.gm-brand-logo { display: block; flex: none; width: 24px; height: 24px; margin: -1px -1px -1px -2px; }
+
+/* ---------- title bar (Windows window controls overlay, see src/main/chrome.ts) ----------
+   No separate bar: the top 52px of the window are the sidebar's brand row on the page (--s0) and the main panel's
+   header on --s1, with Windows' own caption buttons at the header's right end on the same --s1. The panel reaches the
+   top and right window edges (rounded top-left corner, the Windows 11 content layer), so the buttons sit on the surface
+   they share a colour with. One transparent strip marks the title bar as draggable; every control in it is excluded,
+   so clicks on controls never start a window drag. */
+.gm-titlebar { display: none; }
+:root[data-titlebar="overlay"] {
+  --gm-caption-w: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+}
+:root[data-titlebar="overlay"] .gm-titlebar {
+  display: block; position: fixed; z-index: 0; top: 0; left: env(titlebar-area-x, 0px);
+  width: env(titlebar-area-width, 100%); height: env(titlebar-area-height, 52px);
+  -webkit-app-region: drag; app-region: drag; pointer-events: none;
+}
+:root[data-titlebar="overlay"] :is(button, input, select, textarea, a[href], label, summary, [role="button"], [role="tab"],
+  [role="switch"], [role="combobox"], [role="menu"], [role="listbox"], [role="dialog"], [role="alertdialog"],
+  [tabindex]:not([tabindex="-1"]), .popover, .backdrop, .sm-backdrop) {
+  -webkit-app-region: no-drag; app-region: no-drag;
+}
+:root[data-titlebar="overlay"] .shell-main { margin: 0; border-radius: var(--r-xl) 0 0 0; }
+:root[data-titlebar="overlay"] .gm-top { padding-right: calc(16px + var(--gm-caption-w)); }
