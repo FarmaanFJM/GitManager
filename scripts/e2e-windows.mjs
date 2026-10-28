@@ -46,19 +46,19 @@ async function quit() {
 }
 const win = () => app.evaluate(({ BrowserWindow, screen }) => {
   const w = BrowserWindow.getAllWindows()[0]
-  return { visible: w.isVisible(), minimized: w.isMinimized(), maximized: w.isMaximized(), bounds: w.getBounds(), scale: screen.getDisplayMatching(w.getBounds()).scaleFactor, work: screen.getDisplayMatching(w.getBounds()).workArea }
+  return { visible: w.isVisible(), minimized: w.isMinimized(), maximized: w.isMaximized(), bounds: w.getBounds(), content: w.getContentBounds(), scale: screen.getDisplayMatching(w.getBounds()).scaleFactor, work: screen.getDisplayMatching(w.getBounds()).workArea }
 })
 const tray = () => app.evaluate(() => globalThis.__gitmanager.tray())
 const setBounds = b => app.evaluate(({ BrowserWindow }, b) => { const w = BrowserWindow.getAllWindows()[0]; if (w.isMaximized()) w.unmaximize(); w.setBounds(b); w.focus() }, b)
-/** Window-relative DIP point to physical screen pixels. */
-const screenPt = async (x, y) => { const w = await win(); return [Math.round((w.bounds.x + x) * w.scale), Math.round((w.bounds.y + y) * w.scale)] }
+/** Page (CSS) point to physical screen pixels. The content bounds, not the window bounds: a maximized window reaches past the screen edge. */
+const screenPt = async (x, y) => { const w = await win(); return [Math.round((w.content.x + x) * w.scale), Math.round((w.content.y + y) * w.scale)] }
 const mouse = async (action, x, y) => { const [sx, sy] = await screenPt(x, y); ps('-Action', action, '-X', String(sx), '-Y', String(sy)) }
 const awayFromControls = () => mouse('move', 420, 420)
 /** Screenshot of the window as Windows draws it (caption buttons included), and colours at window-relative points. */
 async function capture(name, points = []) {
   const w = await win(), s = w.scale
   const pts = points.map(([x, y]) => `${Math.round(x * s)},${Math.round(y * s)}`).join(';')
-  const out = ps('-Action', 'capture', '-X', String(Math.round(w.bounds.x * s)), '-Y', String(Math.round(w.bounds.y * s)), '-W', String(Math.round(w.bounds.width * s)), '-H', String(Math.round(w.bounds.height * s)), '-Path', join(OUT, `${name}.png`), '-Points', pts)
+  const out = ps('-Action', 'capture', '-X', String(Math.round(w.content.x * s)), '-Y', String(Math.round(w.content.y * s)), '-W', String(Math.round(w.content.width * s)), '-H', String(Math.round(w.content.height * s)), '-Path', join(OUT, `${name}.png`), '-Points', pts)
   return Object.fromEntries(out.trim().split(/\r?\n/).filter(Boolean).map(l => l.split('=')))
 }
 const near = (hex, want, tol = 4) => !!hex && [0, 2, 4].every(i => Math.abs(parseInt(hex.slice(i, i + 2), 16) - parseInt(want.slice(i, i + 2), 16)) <= tol)
@@ -71,7 +71,7 @@ async function titlebarColours(name) {
   const right = r.area.x + r.area.width
   const c = await capture(name, [[40, 6], [right - 12, 6], [right + 6, 4], [right + r.captionWidth / 2, 4]])
   const w = await win(), sc = w.scale
-  ps('-Action', 'capture', '-X', String(Math.round(w.bounds.x * sc)), '-Y', String(Math.round(w.bounds.y * sc)), '-W', String(Math.round(w.bounds.width * sc)), '-H', String(Math.round(64 * sc)), '-Path', join(OUT, `${name}-titlebar.png`))
+  ps('-Action', 'capture', '-X', String(Math.round(w.content.x * sc)), '-Y', String(Math.round(w.content.y * sc)), '-W', String(Math.round(w.content.width * sc)), '-H', String(Math.round(64 * sc)), '-Path', join(OUT, `${name}-titlebar.png`))
   const v = Object.values(c)
   return { ok: near(v[0], '141515') && v.slice(1).every(h => near(h, '1b1c1c')), colours: v.join(' '), report: r }
 }
