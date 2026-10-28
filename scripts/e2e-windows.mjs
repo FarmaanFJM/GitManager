@@ -138,7 +138,8 @@ async function main() {
   ps('-Action', 'drag', '-X', String(fx), '-Y', String(fy), '-X2', String(fx + 120), '-Y2', String(fy + 70))
   await sleep(500)
   const moved = (await win()).bounds
-  check(Math.abs(moved.x - before.x - 120) <= 8 && Math.abs(moved.y - before.y - 70) <= 8 && moved.width === before.width, 'Window: dragging the title bar moves it', `${before.x},${before.y} -> ${moved.x},${moved.y}`)
+  // Windows starts the move only after its drag threshold, so a few pixels of the gesture are not applied
+  check(Math.abs(moved.x - before.x - 120) <= 16 && Math.abs(moved.y - before.y - 70) <= 16 && moved.width === before.width, 'Window: dragging the title bar moves it', `${before.x},${before.y} -> ${moved.x},${moved.y}`)
   // The resize edge is just inside the visible frame or in Windows' invisible border just outside it; try both.
   let resized = moved
   for (const d of [-3, 4]) {

@@ -29,7 +29,7 @@ switch ($Action) {
   'drag' {
     Move-To $X $Y; Start-Sleep -Milliseconds 200; Down; Start-Sleep -Milliseconds 100
     for ($i = 1; $i -le 12; $i++) { Move-To ($X + ($X2 - $X) * $i / 12) ($Y + ($Y2 - $Y) * $i / 12); Start-Sleep -Milliseconds 40 }
-    Start-Sleep -Milliseconds 150; Up
+    Start-Sleep -Milliseconds 150; Move-To $X2 $Y2; Start-Sleep -Milliseconds 200; Up
   }
   'snapleft' { Key 0x5B $false; Key 0x25 $false; Key 0x25 $true; Key 0x5B $true; Start-Sleep -Milliseconds 300; Key 0x1B $false; Key 0x1B $true }
   'capture' {
