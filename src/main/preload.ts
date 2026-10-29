@@ -10,8 +10,10 @@ const METHODS = [
   'scanRoot', 'addRepos', 'draftProfile', 'saveProfile', 'removeProfile', 'selectProfile', 'previewLaunch', 'trustProfile',
   'startServices', 'stopServices', 'restartService', 'logs', 'clearLogs', 'saveSettings', 'startupState',
   'discoveryStatus', 'rescan', 'unignoreRepo', 'branchOverview', 'branchDetail', 'setCompareBase',
+  'storageState', 'storageAuth', 'storageScan', 'storageCancel', 'storageCandidates', 'storagePreview', 'storageDelete', 'storagePin', 'storageProtectRepo',
+  'storageSavePolicy', 'storageSaveSettings', 'storageRunAutomation', 'storageDismissRecommendation', 'storageAudit', 'storageOpen',
 ]
-const EVENTS = ['service-status', 'service-logs', 'logs-cleared', 'discovery-status', 'repo-added']
+const EVENTS = ['service-status', 'service-logs', 'logs-cleared', 'discovery-status', 'repo-added', 'storage-status', 'storage-changed']
 
 const api: Record<string, unknown> = {}
 for (const m of METHODS) api[m] = (...args: unknown[]) => ipcRenderer.invoke(`gm:${m}`, ...args)

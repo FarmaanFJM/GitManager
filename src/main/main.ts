@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Menu, nativeTheme, session, shell, type Tray } from 'electron'
+import { app, BrowserWindow, dialog, Menu, nativeTheme, Notification, session, shell, type Tray } from 'electron'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { startHidden, Startup, trayWanted } from '../core/startup.js'
@@ -120,6 +120,7 @@ function start() {
       openPath: p => shell.openPath(p),
       openExternal: u => shell.openExternal(u),
       settingsChanged: () => syncTray(),
+      notify: (title, body) => { if (Notification.isSupported()) new Notification({ title, body, silent: true }).show() },
     }, { startup })
     registerIpc(backend, isTrustedUrl)
     forwardEvents(backend, () => win?.webContents ?? null)
@@ -130,12 +131,14 @@ function start() {
     syncTray()
     // Automatic discovery runs in the background once the window is up, at every launch, unless the user turned it off.
     win?.webContents.once('did-finish-load', () => { if (store.data.settings.autoDiscover) void backend.discovery.run('common') })
+    // The optional storage schedule only ticks while GitManager runs; it is off unless the user turned it on in Storage.
+    backend.storage.start()
     app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow() })
   })
   app.on('second-instance', () => showWindow())
   app.on('before-quit', e => { void confirmQuit(e) })
   app.on('window-all-closed', () => { app.quit() })
-  process.on('exit', () => backend?.services.killAllNow())
+  process.on('exit', () => { backend?.storage.stop(); backend?.services.killAllNow() })
 
   // Read-only view of the tray for the acceptance scenarios (main process only; the page cannot reach it).
   if (process.env.GITMANAGER_TEST_HOOKS === '1') {

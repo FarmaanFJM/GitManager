@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
+import type { StorageConfig } from '../shared/storage.js'
+import { emptyConfig, sanitizeConfig } from './storage/config.js'
 import type { IgnoredRepo, Location, Profile, Repo, Root, Settings } from '../shared/types.js'
 import { baseName, locationKey, sameLocation } from './paths.js'
 import * as v from './validate.js'
@@ -17,10 +19,12 @@ export type Data = {
   /** Comparison base chosen by the user per repository (branch name), used when the default branch cannot be detected or to override it. */
   compareBase: Record<string, string>
   discovery: { lastRunAt: string | null }
+  /** Storage module: settings, per-repository policies, protected repositories and pinned artifacts. Local only. */
+  storage: StorageConfig
 }
 
 export const DEFAULT_SETTINGS: Settings = { editor: 'code', chromePath: '', discoveryDepth: 3, autoDiscover: true, launchAtStartup: false, startMinimized: false, minimizeToTray: false }
-const empty = (): Data => ({ schemaVersion: 1, repos: [], roots: [], profiles: [], settings: { ...DEFAULT_SETTINGS }, ui: { selectedRepoId: null, selectedProfile: {} }, ignored: [], compareBase: {}, discovery: { lastRunAt: null } })
+const empty = (): Data => ({ schemaVersion: 1, repos: [], roots: [], profiles: [], settings: { ...DEFAULT_SETTINGS }, ui: { selectedRepoId: null, selectedProfile: {} }, ignored: [], compareBase: {}, discovery: { lastRunAt: null }, storage: emptyConfig() })
 
 export const newId = () => randomUUID().replace(/-/g, '').slice(0, 16)
 
@@ -46,6 +50,7 @@ export function sanitize(raw: unknown): { data: Data; dropped: number } {
   if (r.compareBase && typeof r.compareBase === 'object') {
     for (const [k, val] of Object.entries(r.compareBase as Record<string, unknown>)) if (typeof val === 'string' && repoIds.has(k) && val.length < 256) d.compareBase[k] = val
   }
+  d.storage = sanitizeConfig(r.storage)
   const disc = (r.discovery ?? {}) as Record<string, unknown>
   d.discovery.lastRunAt = typeof disc.lastRunAt === 'string' ? disc.lastRunAt : null
   const ui = (r.ui ?? {}) as Record<string, unknown>
