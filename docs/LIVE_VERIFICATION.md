@@ -33,6 +33,15 @@ node scripts/verify/live.mjs requests $env:TEMP\gm-scan.log --expect none
 
 Must report zero mutating requests. Any DELETE, POST, PUT or PATCH is a release blocker.
 
+## Why is a family not reclaimable?
+
+```powershell
+node scripts/verify/live.mjs explain --repo FarmaanFJM/markdown-studio
+node scripts/verify/live.mjs explain --repo FarmaanFJM/markdown-studio --save $env:TEMP\ms   # keep the raw inventory; re-run later with --from $env:TEMP\ms
+```
+
+Read-only. Prints each artifact family with its age range and the rule holding every copy, today's reclaimable total with the default age, and what-if totals for other ages and later days.
+
 ## 3 to 6. Independent reconciliation
 
 ```powershell

@@ -8,6 +8,7 @@
 //   node scripts/verify/live.mjs diff before.json after.json
 //   node scripts/verify/live.mjs requests <request.log> --expect none | --expect canary --repo o/r --id 123
 //   node scripts/verify/live.mjs audit [--log <storage-audit.jsonl>]
+//   node scripts/verify/live.mjs explain --repo o/r [--temp-days 7] [--plus-days 0] [--save dir | --from dir]   (why artifacts are or are not candidates; what-if)
 //   node scripts/verify/live.mjs canary-create --repo o/r             (creates a disposable branch, workflow and artifacts)
 //   node scripts/verify/live.mjs canary-cleanup --repo o/r --branch storage-canary-123 --yes
 //
@@ -310,6 +311,53 @@ async function auditCmd() {
   process.exit(fails ? 1 : 0)
 }
 
+async function explain() {
+  const { classifyRepo } = await dist('core/storage/classify.js')
+  const { DEFAULT_POLICY } = await dist('core/storage/config.js')
+  const { formatBytes } = await dist('shared/storageTotals.js')
+  const repo = flag('repo', 'FarmaanFJM/GitManager')
+  const from = flag('from'), save = flag('save')
+  let d
+  if (from) d = JSON.parse(readFileSync(join(from, 'inventory.json'), 'utf8'))
+  else {
+    const info = api(`/repos/${repo}`)
+    const artifacts = pages(`/repos/${repo}/actions/artifacts`, b => b.artifacts).items
+    const runs = new Map(pages(`/repos/${repo}/actions/runs`, b => b.workflow_runs, 5).items.map(r => [r.id, r]))
+    for (const id of new Set(artifacts.filter(a => !a.expired && a.workflow_run).map(a => a.workflow_run.id))) if (!runs.has(id)) { try { runs.set(id, api(`/repos/${repo}/actions/runs/${id}`)) } catch { /* unknown run */ } }
+    const pulls = pages(`/repos/${repo}/pulls?state=open`, b => b, 10).items
+    const releases = api(`/repos/${repo}/releases?per_page=30`)
+    const tags = pages(`/repos/${repo}/tags`, b => b, 3).items.map(t => t.name)
+    let docs = ''
+    try {
+      const tree = api(`/repos/${repo}/git/trees/HEAD?recursive=1`)
+      for (const f of tree.tree.filter(e => e.type === 'blob' && /^(?:[^/]+|docs\/.+)\.md$/i.test(e.path) && e.size <= 262144).slice(0, 15)) docs += '\n' + gh(['api', '-H', 'Accept: application/vnd.github.raw+json', `/repos/${repo}/contents/${f.path.split('/').map(encodeURIComponent).join('/')}`]).toLowerCase()
+    } catch { docs = null }
+    d = { repo, defaultBranch: info.default_branch, artifacts, runs: [...runs.values()], pulls, releases, tags, docs, fetchedAt: new Date().toISOString() }
+    if (save) { mkdirSync(save, { recursive: true }); writeFileSync(join(save, 'inventory.json'), JSON.stringify(d)); console.log(`saved the raw inventory to ${join(save, 'inventory.json')}`) }
+  }
+  const runMap = new Map(d.runs.map(r => [r.id, { id: r.id, name: r.name, path: r.path, status: r.status, conclusion: r.conclusion, event: r.event, runNumber: r.run_number, headBranch: r.head_branch, headSha: r.head_sha, htmlUrl: r.html_url, pullNumbers: (r.pull_requests ?? []).map(p => p.number) }]))
+  const raws = d.artifacts.map(a => ({ id: a.id, repo: d.repo, name: a.name, sizeBytes: a.size_in_bytes, createdAt: a.created_at, expiresAt: a.expires_at, expired: a.expired, runId: a.workflow_run?.id ?? null, headBranch: a.workflow_run?.head_branch ?? null, headSha: a.workflow_run?.head_sha ?? null }))
+  const active = [...d.releases.filter(r => r.draft), ...d.releases.filter(r => !r.draft && !r.prerelease).slice(0, 1), ...d.releases.filter(r => !r.draft && r.prerelease).slice(0, 1)].map(r => ({ tag: r.tag_name, sha: null, draft: r.draft, prerelease: r.prerelease }))
+  const base = Date.now() + Number(flag('plus-days', '0')) * 86400000
+  const classify = (tempDays, now) => classifyRepo(raws, { now, policy: { ...DEFAULT_POLICY, tempDays, reportDays: Math.max(tempDays, 1) }, protectedRepo: false, pinned: new Set(), runs: runMap, pulls: d.pulls.map(p => ({ number: p.number, headRef: p.head.ref, headSha: p.head.sha })), releases: active, releaseTags: new Set([...d.releases.map(r => r.tag_name), ...d.tags]), defaultBranch: d.defaultBranch, docs: d.docs, context: { runs: true, pulls: true, releases: true, docs: d.docs !== null } })
+  const out = classify(Number(flag('temp-days', '7')), base)
+  const live = out.filter(a => !a.expired)
+  console.log(`${d.repo}: ${live.length} live artifacts, ${formatBytes(live.reduce((n, a) => n + a.sizeBytes, 0))}; default branch ${d.defaultBranch}; ${d.releases.length} releases, ${d.tags.length} tags, ${d.pulls.length} open PRs; docs ${d.docs === null ? 'NOT READ' : 'read'}\n`)
+  const fam = {}
+  for (const a of live) { const k = a.name; (fam[k] ??= []).push(a) }
+  for (const [name, list] of Object.entries(fam).sort((x, y) => y[1].reduce((n, a) => n + a.sizeBytes, 0) - x[1].reduce((n, a) => n + a.sizeBytes, 0))) {
+    const ages = list.map(a => (base - Date.parse(a.createdAt)) / 86400000)
+    console.log(`${name}: ${list.length} copies, ${formatBytes(list.reduce((n, a) => n + a.sizeBytes, 0))}, age ${Math.min(...ages).toFixed(1)} to ${Math.max(...ages).toFixed(1)} days`)
+    const by = {}
+    for (const a of list) { const k = `${a.class}/${a.reasonCode}`; by[k] ??= [0, 0]; by[k][0]++; by[k][1] += a.sizeBytes }
+    for (const [k, v] of Object.entries(by).sort()) console.log(`    ${k}: ${v[0]} (${formatBytes(v[1])})`)
+  }
+  const sum = (o) => o.filter(a => a.class === 'delete-candidate').reduce((n, a) => n + a.sizeBytes, 0)
+  console.log(`\nreclaimable now with age ${flag('temp-days', '7')} d: ${formatBytes(sum(out))}`)
+  for (const [days, plus] of [[1, 0], [3, 0], [7, 0], [7, 3], [7, 7], [7, 14]]) console.log(`  what-if age ${days} d, ${plus ? `in ${plus} days` : 'today'}: ${formatBytes(sum(classify(days, Date.now() + plus * 86400000)))}`)
+  console.log('\nWhy nothing more is a candidate is the reason histogram above: recent = younger than the age; failed-run = output of a failed run not yet superseded; open-pr, newest-successful, newest-default-branch, last-installer = retained by rule; tag-build = built from a release tag.')
+}
+
 function canaryCreate() {
   const repo = flag('repo', 'FarmaanFJM/GitManager')
   const stamp = Date.now()
@@ -361,6 +409,6 @@ function canaryCleanup() {
   console.log(`removed temporary branch ${branch}. Remaining canary artifacts expire after 1 day (or delete them in GitManager).`)
 }
 
-const table = { env: envCmd, reconcile, snapshot: snapshotCmd, diff: diffCmd, requests: requestsCmd, audit: auditCmd, 'canary-create': canaryCreate, 'canary-cleanup': canaryCleanup }
+const table = { explain, env: envCmd, reconcile, snapshot: snapshotCmd, diff: diffCmd, requests: requestsCmd, audit: auditCmd, 'canary-create': canaryCreate, 'canary-cleanup': canaryCleanup }
 if (!table[cmd]) { console.error(readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 16).join('\n')); process.exit(2) }
 await table[cmd]()

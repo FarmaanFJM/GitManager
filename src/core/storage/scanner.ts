@@ -52,6 +52,7 @@ export async function scanRepo(gh: GitHub, repo: RepoSummary, o: ScanOptions): P
   const pulls: OpenPull[] = []
   const releases: ActiveRelease[] = []
   let docs: string | null = ''
+  const releaseTags = new Set<string>()
 
   if (live.length) {
     // Runs: one list call covers recent runs; the rest are fetched individually, bounded.
@@ -87,6 +88,8 @@ export async function scanRepo(gh: GitHub, repo: RepoSummary, o: ScanOptions): P
 
     try {
       const all = await gh.listReleases(repo.fullName)
+      for (const r of all) releaseTags.add(r.tag)
+      for (const t of await gh.listTags(repo.fullName)) releaseTags.add(t)
       const latest = all.find(r => !r.draft && !r.prerelease)
       const pre = all.find(r => !r.draft && r.prerelease)
       const active = [...all.filter(r => r.draft), ...(latest ? [latest] : []), ...(pre ? [pre] : [])]
@@ -128,7 +131,7 @@ export async function scanRepo(gh: GitHub, repo: RepoSummary, o: ScanOptions): P
   inv.artifacts = classifyRepo(raws, {
     now, policy: policyFor(cfg, repo.fullName), protectedRepo: inv.protectedRepo,
     pinned: new Set(cfg.pins.filter(p => repoKey(p.repo) === key).map(p => p.artifactId)),
-    runs, pulls, releases, docs, context: inv.context,
+    runs, pulls, releases, releaseTags, defaultBranch: repo.defaultBranch, docs, context: inv.context,
   })
   return inv
 }

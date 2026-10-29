@@ -26,6 +26,10 @@ export type ClassifyContext = {
   pulls: readonly OpenPull[]
   /** Releases that are current: the latest published one, drafts, the latest pre-release. */
   releases: readonly ActiveRelease[]
+  /** The repository's default branch; the newest successful builds on it are always kept (they are what people install). */
+  defaultBranch?: string | null
+  /** Every release and tag name. A run on one of these (or a `release` event) is a release build, never plain CI output. */
+  releaseTags?: ReadonlySet<string>
   /** Lower-cased text of the repository's documentation, or null when it could not be read. */
   docs: string | null
   /** Which lookups succeeded. A delete candidate is only trusted when everything it depends on was read. */
@@ -109,6 +113,17 @@ export function classifyRepo(raws: readonly RawArtifact[], ctx: ClassifyContext)
     for (const a of list) successfulNewer.set(a.id, ok.filter(s => info.get(s.id)!.t > info.get(a.id)!.t || (info.get(s.id)!.t === info.get(a.id)!.t && s.id > a.id)).length)
   }
 
+  // Per branch, within a family: how many successful builds are newer. An open pull request protects only its newest builds.
+  const branchOf = (a: RawArtifact) => info.get(a.id)!.run?.headBranch ?? a.headBranch ?? ''
+  const newerThan = (s: RawArtifact, a: RawArtifact) => info.get(s.id)!.t > info.get(a.id)!.t || (info.get(s.id)!.t === info.get(a.id)!.t && s.id > a.id)
+  const branchNewer = new Map<number, number>()
+  const defaultRank = new Map<number, number>()
+  for (const list of families.values()) {
+    const ok = list.filter(a => info.get(a.id)!.ok).sort(newer)
+    for (const a of list) branchNewer.set(a.id, ok.filter(x => branchOf(x) === branchOf(a) && newerThan(x, a)).length)
+    if (ctx.defaultBranch) ok.filter(a => branchOf(a) === ctx.defaultBranch).forEach((a, i) => defaultRank.set(a.id, i))
+  }
+
   // The last usable installer of each platform is never offered, whatever the policy says.
   const lastInstaller = new Set<number>()
   const byPlatform = new Map<string, RawArtifact[]>()
@@ -148,15 +163,19 @@ export function classifyRepo(raws: readonly RawArtifact[], ctx: ClassifyContext)
     if (rel) return V('protected', 'release', `Built for ${rel.draft ? 'the draft release' : 'the current release'} ${rel.tag}.`)
 
     const pr = ctx.pulls.find(p => run?.pullNumbers.includes(p.number) || (run?.headBranch ?? a.headBranch) === p.headRef || (run?.headSha ?? a.headSha) === p.headSha)
-    if (pr) return V('keep', 'open-pr', `Belongs to open pull request #${pr.number}.`)
+    if (pr && (branchNewer.get(a.id) ?? 0) < policy.keepLatest) return V('keep', 'open-pr', `Belongs to open pull request #${pr.number} (among the newest ${policy.keepLatest} builds of its branch).`)
     if (run && run.status !== 'completed') return V('keep', 'run-active', `Its workflow run is still ${run.status ?? 'running'}.`)
 
     if (!run || Number.isNaN(i.t)) return V('review', 'metadata-missing', run ? 'Creation date is missing.' : 'Its workflow run could not be found, so its origin is unknown.')
 
     const r = rank.get(a.id)
     if (i.ok && r !== undefined && r < policy.keepLatest) return V('keep', 'newest-successful', `One of the newest ${policy.keepLatest} successful builds of ${i.family} (${i.platform === 'unknown' ? 'any platform' : i.platform}).`)
+    const dr = defaultRank.get(a.id)
+    if (dr !== undefined && dr < policy.keepLatest) return V('keep', 'newest-default-branch', `One of the newest ${policy.keepLatest} successful builds of ${i.family} on ${ctx.defaultBranch}.`)
     if (lastInstaller.has(a.id)) return V('keep', 'last-installer', `The last usable installer for ${i.platform === 'unknown' ? 'its platform' : i.platform}.`)
 
+    // A build made from a release tag may be the only copy of something that was shipped; it is never plain CI output.
+    if (run.event === 'release' || (run.headBranch && ctx.releaseTags?.has(run.headBranch))) return V('review', 'tag-build', `Built from release tag ${run.headBranch}: not the current release, but not offered for deletion automatically.`)
     if (i.category === 'other') return V('review', 'category-unreviewed', 'Its purpose is not recognised from the name, so GitManager will not suggest deleting it.')
     if (i.category === 'evidence' || !policy.deleteCategories.includes(i.category)) return V('review', 'category-disabled', `Cleanup of ${i.category} output is not enabled in this repository's policy.`)
 

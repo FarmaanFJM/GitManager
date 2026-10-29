@@ -7,6 +7,7 @@ export type FakeRun = { id: number; name?: string; path?: string; status?: strin
 export type FakeRepo = {
   full: string; private?: boolean; archived?: boolean; push?: boolean; owner?: string
   artifacts: FakeArtifact[]; runs: FakeRun[]; pulls?: { number: number; ref: string; sha: string }[]
+  tags?: string[]
   releases?: { tag: string; draft?: boolean; prerelease?: boolean; sha?: string }[]; docs?: Record<string, string>
   caches?: { key: string; size: number }[]
 }
@@ -76,6 +77,7 @@ export class FakeGitHub implements GhApi {
     const rm = /^\/actions\/runs\/(\d+)$/.exec(rest)
     if (rm) { const r = repo.runs.find(x => x.id === Number(rm[1])); return r ? json(200, this.runJson(repo, r)) : err(404, 'Not Found') }
     if (rest === '/pulls') return json(200, slice(repo.pulls ?? []).map(x => ({ number: x.number, head: { ref: x.ref, sha: x.sha } })))
+    if (rest === '/tags') return json(200, (repo.tags ?? repo.releases?.map(r => r.tag) ?? []).map(name => ({ name })))
     if (rest === '/releases') return json(200, (repo.releases ?? []).map(r => ({ tag_name: r.tag, draft: !!r.draft, prerelease: !!r.prerelease, published_at: '2026-01-01T00:00:00Z' })))
     const cm = /^\/commits\/(.+)$/.exec(rest)
     if (cm) { const r = repo.releases?.find(x => x.tag === decodeURIComponent(cm[1])); return r ? json(200, { sha: r.sha ?? `tag-${r.tag}` }) : err(404, 'Not Found') }

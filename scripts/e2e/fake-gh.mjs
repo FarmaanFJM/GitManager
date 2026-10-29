@@ -69,6 +69,7 @@ if (rest === '/actions/runs') out(200, { total_count: repo.runs.length, workflow
 am = /^\/actions\/runs\/(\d+)$/.exec(rest)
 if (am) { const r = repo.runs.find(x => x.id === Number(am[1])); r ? out(200, runJson(r)) : err(404, 'Not Found') }
 if (rest === '/pulls') out(200, slice(repo.pulls ?? []).map(p => ({ number: p.number, head: { ref: p.ref, sha: p.sha } })))
+if (rest === '/tags') out(200, (repo.releases ?? []).map(r => ({ name: r.tag })))
 if (rest === '/releases') out(200, (repo.releases ?? []).map(r => ({ tag_name: r.tag, draft: !!r.draft, prerelease: !!r.prerelease, published_at: '2026-10-01T00:00:00Z' })))
 am = /^\/commits\/(.+)$/.exec(rest)
 if (am) { const r = (repo.releases ?? []).find(x => x.tag === decodeURIComponent(am[1])); r ? out(200, { sha: r.sha ?? `tag-${r.tag}` }) : err(404, 'Not Found') }

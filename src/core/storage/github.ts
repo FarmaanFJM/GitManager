@@ -158,6 +158,11 @@ export class GitHub {
     return (Array.isArray(r) ? r : []).flatMap(x => { const tag = s(x.tag_name); return tag ? [{ tag, draft: x.draft === true, prerelease: x.prerelease === true, publishedAt: s(x.published_at) }] : [] })
   }
 
+  async listTags(repo: string): Promise<string[]> {
+    const r = await this.paged<string>(`/repos/${encodeRepo(repo)}/tags`, b => (b._ as unknown[]) ?? [], x => s(x.name), 3)
+    return r.items
+  }
+
   /** Commit a tag points at (annotated tags resolved), or null when it cannot be read. */
   async tagCommit(repo: string, tag: string): Promise<string | null> {
     try { return s((await this.get<Json>(`/repos/${encodeRepo(repo)}/commits/${encodeURIComponent(tag)}`)).sha) } catch { return null }
