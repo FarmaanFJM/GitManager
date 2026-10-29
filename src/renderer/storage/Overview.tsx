@@ -55,14 +55,14 @@ export function Overview({ st, onOpenRepo }: { st: StorageState; onOpenRepo: (re
           {snap.login ? <>Your scanned repositories hold </> : null}
           <strong>{formatBytes(t.retainedBytes)}</strong> of Actions artifacts right now.{' '}
           {t.reclaimableBytes > 0
-            ? <><strong className="gm-stat-accent">{formatBytes(t.reclaimableBytes)}</strong> in {plural(candidateRepos, 'repository', 'repositories')} is superseded build output you can delete safely. Protected and recent builds stay.</>
+            ? <><strong className="gm-stat-accent">{formatBytes(t.reclaimableBytes)}</strong> in {plural(candidateRepos, 'repository', 'repositories')} is build output superseded by newer successful builds that you can delete now. Protected builds, the newest builds of each branch and failed or cancelled output stay.</>
             : <>Nothing is currently a verified delete candidate.</>}
         </p>
       </section>
 
       <dl className="gm-stats">
         <Stat label="Retained artifacts" value={formatBytes(t.retainedBytes)} hint="stored now, expired excluded" />
-        <Stat label="Reclaimable" value={formatBytes(t.reclaimableBytes)} hint="verified delete candidates" accent={t.reclaimableBytes > 0} />
+        <Stat label="Reclaimable now" value={formatBytes(t.reclaimableBytes)} hint={t.graceCount ? `superseded builds; ${formatBytes(t.graceBytes)} more after the grace period` : 'superseded builds, no waiting period'} accent={t.reclaimableBytes > 0} />
         <Stat label="Protected" value={formatBytes(protectedBytes)} hint={plural(t.byClass.protected.count, 'artifact')} />
         <Stat label="Repositories" value={String(t.repos)} hint={t.failedRepos ? `${t.failedRepos} not readable` : 'scanned'} />
         <Stat label="Artifacts" value={String(t.artifacts)} hint={t.expired ? `${t.expired} expired` : 'not expired'} />

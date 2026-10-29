@@ -7,8 +7,8 @@ export type PlatformTag = 'windows' | 'linux' | 'macos' | 'android' | 'ios' | 'u
 /** Why an artifact got its class. Stable codes for tests and filters; `reason` is the sentence the user reads. */
 export type ReasonCode =
   | 'expired' | 'repo-protected' | 'pinned' | 'evidence' | 'doc-cited' | 'release' | 'open-pr' | 'run-active'
-  | 'newest-successful' | 'last-installer' | 'recent' | 'superseded-build' | 'obsolete-report' | 'superseded-failed'
-  | 'failed-run' | 'metadata-missing' | 'context-incomplete' | 'category-unreviewed' | 'unclassified' | 'category-disabled' | 'no-newer-build' | 'newest-default-branch' | 'tag-build'
+  | 'newest-successful' | 'last-installer' | 'superseded-build' | 'obsolete-report' | 'superseded-failed'
+  | 'failed-run' | 'metadata-missing' | 'context-incomplete' | 'category-unreviewed' | 'unclassified' | 'category-disabled' | 'no-newer-build' | 'tag-build' | 'grace-period'
 
 export type RunInfo = {
   id: number
@@ -42,6 +42,12 @@ export type Artifact = {
   reasonCode: ReasonCode
   reason: string
   pinned: boolean
+  /** The comparison channel: 'default' (the default branch), 'branch:<name>' or 'tag:<name>'. */
+  channel: string
+  /** Successful builds of the same family and channel that are newer than this one (null when it cannot be compared). */
+  newerBuilds: number | null
+  /** When an optional grace period ends, for a superseded build the grace period still retains. */
+  graceUntil: string | null
 }
 
 export type CacheEntry = { key: string; ref: string | null; sizeBytes: number; lastAccessedAt: string | null; createdAt: string | null }
@@ -107,8 +113,12 @@ export type Frequency = 'daily' | 'weekly' | 'monthly'
 export type RepoPolicy = {
   mode: Mode
   keepLatest: number // newest successful builds kept per artifact family
-  tempDays: number // superseded temporary builds younger than this are kept
-  reportDays: number // obsolete CI reports and logs younger than this are kept
+  /** Optional grace period: a superseded build younger than this many days is retained. 0 (the default) means immediately. */
+  graceDays: number
+  reportGraceDays: number // the same for superseded CI reports and logs
+  /** What to do with output of failed or cancelled runs: only you decide (review), or offer it once superseded. */
+  failedOutput: 'review' | 'delete-superseded'
+  failedGraceDays: number
   deleteCategories: ArtifactCategory[] // categories that may ever become delete candidates
   evidencePatterns: string[] // artifact or workflow names (case-insensitive substrings) that are protected
   largeDeleteBytes: number // automatic cleanup above this total waits for approval

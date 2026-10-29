@@ -10,7 +10,7 @@ const MODE_LABEL: Record<Mode, string> = { manual: 'Manual', recommend: 'Automat
 const MODE_HINT: Record<Mode, string> = {
   manual: 'Scan and clean only when you ask.',
   recommend: 'Scan periodically and prepare suggestions. Nothing is deleted without your approval.',
-  'auto-safe': 'Periodically delete only high-confidence superseded builds and obsolete reports that satisfy this approved policy.',
+  'auto-safe': 'Periodically delete only builds and reports that are verifiably superseded by newer successful builds, under this approved policy. Failed output is never deleted automatically.',
 }
 const GB = 1024 ** 3
 
@@ -66,11 +66,12 @@ export function PolicyDialog({ st, repo, onClose }: { st: StorageState; repo: st
         <div className="gm-grid">
           <label className="gm-field"><span className="gm-label">Keep the newest successful builds</span>
             <input className="input" type="number" min={1} max={10} value={p.keepLatest} onChange={e => set('keepLatest', Number(e.target.value))} />
-            <span className="gm-hint">Per artifact family and platform. At least 1: the last usable build is never offered.</span></label>
-          <label className="gm-field"><span className="gm-label">Remove superseded builds older than (days)</span>
-            <input className="input" type="number" min={1} max={365} value={p.tempDays} onChange={e => set('tempDays', Number(e.target.value))} /></label>
-          <label className="gm-field"><span className="gm-label">Remove obsolete CI reports and logs older than (days)</span>
-            <input className="input" type="number" min={1} max={365} value={p.reportDays} onChange={e => set('reportDays', Number(e.target.value))} /></label>
+            <span className="gm-hint">Per workflow, output, platform, architecture and branch. At least 1: the last usable build is never offered.</span></label>
+          <label className="gm-field"><span className="gm-label">Grace period for superseded builds (days)</span>
+            <input className="input" type="number" min={0} max={365} value={p.graceDays} onChange={e => set('graceDays', Number(e.target.value))} />
+            <span className="gm-hint">Optional. 0 offers a build as soon as {p.keepLatest} newer successful builds of its family and branch exist.</span></label>
+          <label className="gm-field"><span className="gm-label">Grace period for superseded CI reports and logs (days)</span>
+            <input className="input" type="number" min={0} max={365} value={p.reportGraceDays} onChange={e => set('reportGraceDays', Number(e.target.value))} /></label>
           <label className="gm-field"><span className="gm-label">Large deletion needs approval above (GB)</span>
             <input className="input" type="number" min={0} step={0.5} value={+(p.largeDeleteBytes / GB).toFixed(2)} onChange={e => set('largeDeleteBytes', Math.round(Number(e.target.value) * GB))} /></label>
         </div>
@@ -78,6 +79,12 @@ export function PolicyDialog({ st, repo, onClose }: { st: StorageState; repo: st
           <div className="row gm-cats">
             {(['installer', 'build', 'report', 'logs'] as ArtifactCategory[]).map(c => <span key={c} className="row"><Checkbox checked={p.deleteCategories.includes(c)} onChange={() => toggleCat(c)} label={CATEGORY_LABEL[c]} />{CATEGORY_LABEL[c]}</span>)}
           </div>
+        </div>
+        <div className="gm-field"><span className="gm-label">Failed or cancelled output</span>
+          <Dropdown label="Failed output" value={p.failedOutput} onChange={v => set('failedOutput', v)} width={420}
+            options={[{ value: 'review', label: 'Only I decide (Review)' }, { value: 'delete-superseded', label: 'Offer once superseded by newer successful builds' }]} />
+          {p.failedOutput === 'delete-superseded' && <label className="gm-field"><span className="gm-label">Wait at least (days)</span><input className="input" type="number" min={0} max={365} value={p.failedGraceDays} onChange={e => set('failedGraceDays', Number(e.target.value))} /></label>}
+          <p className="gm-hint">Failed output can be the only evidence of a problem, so it is never offered unless you allow it here, and automatic cleanup never deletes it.</p>
         </div>
         <label className="gm-field"><span className="gm-label">Always preserve (qualification and audit evidence)</span>
           <input className="input gm-mono" value={patterns} onChange={e => { setPatterns(e.target.value); setApprove(false) }} spellCheck={false} />

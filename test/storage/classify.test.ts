@@ -40,7 +40,7 @@ describe('classification', () => {
   it('treats builds for different operating systems as separate families', () => {
     const win = [1, 2, 3].map(n => art('app-windows-x64', n))
     const lin = [1, 2, 3].map(n => art('app-linux-x64', n))
-    const c = classOf([...win, ...lin], { policy: { ...DEFAULT_POLICY, tempDays: 1 } })
+    const c = classOf([...win, ...lin], { policy: { ...DEFAULT_POLICY } })
     for (const set of [win, lin]) {
       expect(c[set[0].a.id].reasonCode).toBe('newest-successful')
       expect(c[set[1].a.id].reasonCode).toBe('newest-successful')
@@ -48,9 +48,15 @@ describe('classification', () => {
     }
   })
 
-  it('keeps recent builds even when superseded', () => {
-    const items = [1, 2, 3].map(n => art('app-windows-x64', n))
-    expect(classOf(items)[items[2].a.id]).toMatchObject({ class: 'keep', reasonCode: 'recent' })
+  it('an optional grace period retains superseded builds until it has passed, and says so', () => {
+    const items = [1, 2, 3, 10].map(n => art('app-windows-x64', n))
+    const c = classOf(items, { policy: { ...DEFAULT_POLICY, graceDays: 7 } })
+    expect(c[items[2].a.id]).toMatchObject({ class: 'keep', reasonCode: 'grace-period' })
+    expect(c[items[2].a.id].graceUntil).not.toBeNull()
+    expect(c[items[3].a.id]).toMatchObject({ class: 'delete-candidate', reasonCode: 'superseded-build' })
+    // and with no grace period (the default) the same builds are candidates at once
+    const now = classOf(items)
+    expect(now[items[2].a.id].class).toBe('delete-candidate')
   })
 
   it('always keeps the last usable installer of a platform, even with a long list of older failures', () => {
@@ -79,12 +85,26 @@ describe('classification', () => {
     expect(classOf([a])[a.a.id].reasonCode).toBe('run-active')
   })
 
-  it('does not offer failed or cancelled output until a newer successful build supersedes it', () => {
-    const failed = art('app-windows-x64', 40, {}, run({ conclusion: 'failure' }))
-    expect(classOf([failed])[failed.a.id]).toMatchObject({ class: 'review', reasonCode: 'failed-run' })
+  it('never offers failed or cancelled output on its own: it goes to Review however many newer successes exist', () => {
     const good = [1, 2].map(n => art('app-windows-x64', n))
-    const cancelled = art('app-windows-x64', 40, {}, run({ conclusion: 'cancelled' }))
-    expect(classOf([...good, cancelled])[cancelled.a.id]).toMatchObject({ class: 'delete-candidate', reasonCode: 'superseded-failed' })
+    const failed = art('app-windows-x64', 40, {}, run({ conclusion: 'failure' }))
+    const cancelled = art('app-windows-x64', 41, {}, run({ conclusion: 'cancelled' }))
+    const c = classOf([...good, failed, cancelled])
+    expect(c[failed.a.id]).toMatchObject({ class: 'review', reasonCode: 'failed-run' })
+    expect(c[cancelled.a.id]).toMatchObject({ class: 'review', reasonCode: 'failed-run' })
+  })
+
+  it('offers superseded failed output only when the policy explicitly allows it, after its own grace period', () => {
+    const good = [1, 2].map(n => art('app-windows-x64', n))
+    const old = art('app-windows-x64', 40, {}, run({ conclusion: 'failure' }))
+    const young = art('app-windows-x64', 3, {}, run({ conclusion: 'cancelled' }))
+    const policy = { ...DEFAULT_POLICY, failedOutput: 'delete-superseded' as const, failedGraceDays: 14 }
+    const c = classOf([...good, old, young], { policy })
+    expect(c[old.a.id]).toMatchObject({ class: 'delete-candidate', reasonCode: 'superseded-failed' })
+    expect(c[young.a.id]).toMatchObject({ class: 'review', reasonCode: 'failed-run' })
+    // not superseded: still Review even when allowed
+    const lone = art('app-windows-x64', 40, {}, run({ conclusion: 'failure' }))
+    expect(classOf([lone], { policy })[lone.a.id].class).toBe('review')
   })
 
   it('protects artifacts cited by documentation, by name or by run', () => {
@@ -147,12 +167,13 @@ describe('classification', () => {
     expect(c[items[2].a.id]).toMatchObject({ class: 'review', reasonCode: 'category-disabled' })
   })
 
-  it('applies the separate report age to CI reports', () => {
-    const items = [1, 5, 20].map(n => art('coverage-report', n))
+  it('treats superseded CI reports like builds, with their own optional grace period', () => {
+    const items = [1, 2, 3, 20].map(n => art('coverage-report', n))
     const c = classOf(items)
     expect(c[items[2].a.id]).toMatchObject({ class: 'delete-candidate', reasonCode: 'obsolete-report' })
-    const young = [1, 2, 10].map(n => art('coverage-report', n))
-    expect(classOf(young)[young[2].a.id].reasonCode).toBe('recent')
+    const g = classOf(items, { policy: { ...DEFAULT_POLICY, reportGraceDays: 14 } })
+    expect(g[items[2].a.id].reasonCode).toBe('grace-period')
+    expect(g[items[3].a.id].class).toBe('delete-candidate')
   })
 
   it('never allows fewer than one kept build', () => {

@@ -49,11 +49,14 @@ const REPORT_WORDS = new Set(['coverage', 'report', 'reports', 'junit', 'results
 const INSTALLER_WORDS = new Set(['installer', 'setup', 'install', 'msi', 'exe', 'dmg', 'pkg', 'deb', 'rpm', 'appimage', 'apk', 'aab', 'ipa', 'nsis'])
 const BUILD_WORDS = new Set(['build', 'builds', 'dist', 'bundle', 'binaries', 'binary', 'package', 'packages', 'release', 'portable', 'x64', 'x86', 'arm64', 'amd64'])
 
+const ARCH_WORDS: Record<string, string> = { x64: 'x64', amd64: 'x64', x86_64: 'x64', x86: 'x86', ia32: 'x86', win32: 'x86', arm64: 'arm64', aarch64: 'arm64', arm: 'arm', universal: 'universal' }
+
 export const tokens = (name: string) => name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
 
 /** What kind of output an artifact name suggests, and for which platform. Names are a hint, never the whole decision. */
-export function parseName(name: string): { category: ArtifactCategory; platform: PlatformTag; family: string } {
+export function parseName(name: string): { category: ArtifactCategory; platform: PlatformTag; arch: string; family: string } {
   const t = tokens(name)
+  const arch = t.map(w => ARCH_WORDS[w]).find(Boolean) ?? 'any'
   let platform: PlatformTag = 'unknown'
   for (const w of t) if (PLATFORM_WORDS[w]) { platform = PLATFORM_WORDS[w]; break }
   let category: ArtifactCategory = 'other'
@@ -63,7 +66,7 @@ export function parseName(name: string): { category: ArtifactCategory; platform:
   else if (platform !== 'unknown' || t.some(w => BUILD_WORDS.has(w))) category = 'build'
   // The family drops what changes from build to build (numbers, versions, commit ids) so "app-1.2.3-win" and "app-1.2.4-win" compare.
   const kept = t.filter(w => !/^\d+$/.test(w) && !/^v\d+$/.test(w) && !(/^[0-9a-f]{7,40}$/.test(w) && /\d/.test(w)))
-  return { category, platform, family: kept.join('-') || name.toLowerCase() }
+  return { category, platform, arch, family: kept.join('-') || name.toLowerCase() }
 }
 
 const has = (hay: string | null | undefined, patterns: string[]) => {
@@ -77,65 +80,56 @@ type Verdict = { cls: ArtifactClass; code: ReasonCode; reason: string }
 const V = (cls: ArtifactClass, code: ReasonCode, reason: string): Verdict => ({ cls, code, reason })
 
 /**
- * Classifies every artifact of one repository. The rules, in order:
+ * Classifies every artifact of one repository. Verified supersession, not age, decides ordinary CI build output.
+ *
+ * A build is compared only with builds of the same *family and channel*: workflow, output purpose (installer, build, report, log),
+ * platform, architecture and normalised name, within the same channel: the default branch, one other branch (each open pull
+ * request has its own), or one release tag. So an experimental pull request build never supersedes the default branch's last
+ * usable installer, and a Windows x64 installer never supersedes an arm64 one.
+ *
  *  1 expired: already purged by GitHub, nothing to reclaim
  *  2 Protected: protected repository, pinned, evidence (name or workflow), cited by documentation, current release
- *  3 Keep: open pull request, run still active, the newest N successful builds of a family, the last usable installer of a platform
- *  4 Review: metadata missing, category not enabled for cleanup, purpose unknown, failed run not yet superseded
- *  5 Delete candidate: superseded by N newer successful builds, older than the policy age, nothing above applies,
- *    and every lookup it depends on succeeded. Otherwise it is Review: uncertain artifacts are never offered for deletion.
- * Age alone never decides anything.
+ *  3 Keep: its run is still active, an open pull request's newest builds, the newest N successful builds of its family and channel,
+ *    the last usable installer of a platform and architecture
+ *  4 Review: metadata missing, build of a non-current release tag, purpose unknown, category not enabled, failed or cancelled output
+ *    (unless the policy explicitly allows deleting superseded failed output), too few newer successful builds
+ *  5 Delete candidate: N newer successful builds exist in the same family and channel, nothing above applies, every lookup it
+ *    depends on succeeded, and the optional grace period (default none) has passed. Until then it is Keep, "grace period".
+ * An artifact name such as "release" or "installer" protects nothing; only the run's tag, a current release's commit, or evidence does.
  */
 export function classifyRepo(raws: readonly RawArtifact[], ctx: ClassifyContext): Artifact[] {
   const { policy } = ctx
-  const info = new Map<number, ReturnType<typeof parseName> & { run: RunInfo | null; ok: boolean; t: number }>()
+  type Info = ReturnType<typeof parseName> & { run: RunInfo | null; ok: boolean; t: number; branch: string; workflow: string; channel: string; key: string }
+  const info = new Map<number, Info>()
+  const isTag = (run: RunInfo | null) => !!run && (run.event === 'release' || (!!run.headBranch && !!ctx.releaseTags?.has(run.headBranch)))
   for (const a of raws) {
     const run = a.runId !== null ? ctx.runs.get(a.runId) ?? null : null
-    info.set(a.id, { ...parseName(a.name), run, ok: run?.conclusion === 'success', t: a.createdAt ? Date.parse(a.createdAt) : NaN })
+    const p = parseName(a.name)
+    const branch = run?.headBranch ?? a.headBranch ?? ''
+    const workflow = run?.path ?? run?.name ?? ''
+    const channel = isTag(run) ? `tag:${branch || 'release'}` : ctx.defaultBranch && branch === ctx.defaultBranch ? 'default' : `branch:${branch}`
+    info.set(a.id, { ...p, run, ok: run?.conclusion === 'success', t: a.createdAt ? Date.parse(a.createdAt) : NaN, branch, workflow, channel, key: `${workflow}|${p.category}|${p.platform}|${p.arch}|${p.family}|${channel}` })
   }
-  const live = raws.filter(a => !a.expired)
-  const newer = (x: RawArtifact, y: RawArtifact) => (info.get(y.id)!.t - info.get(x.id)!.t) || (y.id - x.id)
+  const complete = (a: RawArtifact) => { const i = info.get(a.id)!; return !!i.run && !Number.isNaN(i.t) && !!i.branch && !!i.workflow }
+  const live = raws.filter(a => !a.expired && complete(a))
+  const newerThan = (x: RawArtifact, y: RawArtifact) => info.get(x.id)!.t > info.get(y.id)!.t || (info.get(x.id)!.t === info.get(y.id)!.t && x.id > y.id)
 
-  // Rank within a family among successful builds (0 = newest). Protected artifacts count: they are retained, and so occupy a slot.
-  const families = new Map<string, RawArtifact[]>()
-  for (const a of live) {
-    const i = info.get(a.id)!
-    if (!i.run || Number.isNaN(i.t)) continue
-    const k = `${i.category}|${i.platform}|${i.family}`
-    if (!families.has(k)) families.set(k, [])
-    families.get(k)!.push(a)
-  }
-  const rank = new Map<number, number>()
-  const successfulNewer = new Map<number, number>()
-  for (const list of families.values()) {
-    const ok = list.filter(a => info.get(a.id)!.ok).sort(newer)
-    ok.forEach((a, i) => rank.set(a.id, i))
-    for (const a of list) successfulNewer.set(a.id, ok.filter(s => info.get(s.id)!.t > info.get(a.id)!.t || (info.get(s.id)!.t === info.get(a.id)!.t && s.id > a.id)).length)
+  // Per family and channel: how many *successful* builds are newer than each artifact. Protected ones count (they are retained).
+  const groups = new Map<string, RawArtifact[]>()
+  for (const a of live) { const k = info.get(a.id)!.key; if (!groups.has(k)) groups.set(k, []); groups.get(k)!.push(a) }
+  const newerOk = new Map<number, number>()
+  for (const list of groups.values()) {
+    const ok = list.filter(a => info.get(a.id)!.ok).sort((x, y) => (newerThan(x, y) ? -1 : 1))
+    for (const a of list) newerOk.set(a.id, ok.filter(s => newerThan(s, a)).length)
   }
 
-  // Per branch, within a family: how many successful builds are newer. An open pull request protects only its newest builds.
-  const branchOf = (a: RawArtifact) => info.get(a.id)!.run?.headBranch ?? a.headBranch ?? ''
-  const newerThan = (s: RawArtifact, a: RawArtifact) => info.get(s.id)!.t > info.get(a.id)!.t || (info.get(s.id)!.t === info.get(a.id)!.t && s.id > a.id)
-  const branchNewer = new Map<number, number>()
-  const defaultRank = new Map<number, number>()
-  for (const list of families.values()) {
-    const ok = list.filter(a => info.get(a.id)!.ok).sort(newer)
-    for (const a of list) branchNewer.set(a.id, ok.filter(x => branchOf(x) === branchOf(a) && newerThan(x, a)).length)
-    if (ctx.defaultBranch) ok.filter(a => branchOf(a) === ctx.defaultBranch).forEach((a, i) => defaultRank.set(a.id, i))
-  }
-
-  // The last usable installer of each platform is never offered, whatever the policy says.
+  // The last usable installer of each platform and architecture is never offered: the default channel's newest, else any.
   const lastInstaller = new Set<number>()
-  const byPlatform = new Map<string, RawArtifact[]>()
-  for (const a of live) {
-    const i = info.get(a.id)!
-    if (i.category !== 'installer' || Number.isNaN(i.t)) continue
-    if (!byPlatform.has(i.platform)) byPlatform.set(i.platform, [])
-    byPlatform.get(i.platform)!.push(a)
-  }
-  for (const list of byPlatform.values()) {
-    const usable = list.filter(a => info.get(a.id)!.ok).sort(newer)
-    const pick = usable[0] ?? list.sort(newer)[0]
+  const byTarget = new Map<string, RawArtifact[]>()
+  for (const a of live) { const i = info.get(a.id)!; if (i.category !== 'installer') continue; const k = `${i.platform}|${i.arch}`; if (!byTarget.has(k)) byTarget.set(k, []); byTarget.get(k)!.push(a) }
+  for (const list of byTarget.values()) {
+    const sorted = list.sort((x, y) => (newerThan(x, y) ? -1 : 1))
+    const pick = sorted.find(a => info.get(a.id)!.ok && info.get(a.id)!.channel === 'default') ?? sorted.find(a => info.get(a.id)!.ok) ?? sorted[0]
     if (pick) lastInstaller.add(pick.id)
   }
 
@@ -146,8 +140,9 @@ export function classifyRepo(raws: readonly RawArtifact[], ctx: ClassifyContext)
 
   const missing = Object.entries({ runs: 'workflow runs', pulls: 'open pull requests', releases: 'releases', docs: 'documentation' })
     .filter(([k]) => !ctx.context[k as keyof typeof ctx.context]).map(([, v]) => v)
+  const channelText = (c: string) => (c === 'default' ? `the default branch (${ctx.defaultBranch})` : c.startsWith('tag:') ? `release tag ${c.slice(4)}` : `branch ${c.slice(7)}`)
 
-  const decide = (a: RawArtifact): Verdict => {
+  const decide = (a: RawArtifact): Verdict & { n?: number; graceUntil?: string | null } => {
     const i = info.get(a.id)!
     const run = i.run
     if (a.expired) return V('expired', 'expired', 'Expired: GitHub already removed the contents; nothing is stored.')
@@ -162,38 +157,46 @@ export function classifyRepo(raws: readonly RawArtifact[], ctx: ClassifyContext)
     const rel = ctx.releases.find(r => (run?.headBranch && run.headBranch === r.tag) || (a.headBranch && a.headBranch === r.tag) || (r.sha && (run?.headSha === r.sha || a.headSha === r.sha)))
     if (rel) return V('protected', 'release', `Built for ${rel.draft ? 'the draft release' : 'the current release'} ${rel.tag}.`)
 
-    const pr = ctx.pulls.find(p => run?.pullNumbers.includes(p.number) || (run?.headBranch ?? a.headBranch) === p.headRef || (run?.headSha ?? a.headSha) === p.headSha)
-    if (pr && (branchNewer.get(a.id) ?? 0) < policy.keepLatest) return V('keep', 'open-pr', `Belongs to open pull request #${pr.number} (among the newest ${policy.keepLatest} builds of its branch).`)
     if (run && run.status !== 'completed') return V('keep', 'run-active', `Its workflow run is still ${run.status ?? 'running'}.`)
+    if (!complete(a)) {
+      const what = !run ? 'its workflow run could not be found' : Number.isNaN(i.t) ? 'its creation date is missing' : !i.branch ? 'its branch is unknown' : 'its workflow is unknown'
+      return V('review', 'metadata-missing', `GitHub metadata is incomplete (${what}), so it cannot be compared safely.`)
+    }
 
-    if (!run || Number.isNaN(i.t)) return V('review', 'metadata-missing', run ? 'Creation date is missing.' : 'Its workflow run could not be found, so its origin is unknown.')
-
-    const r = rank.get(a.id)
-    if (i.ok && r !== undefined && r < policy.keepLatest) return V('keep', 'newest-successful', `One of the newest ${policy.keepLatest} successful builds of ${i.family} (${i.platform === 'unknown' ? 'any platform' : i.platform}).`)
-    const dr = defaultRank.get(a.id)
-    if (dr !== undefined && dr < policy.keepLatest) return V('keep', 'newest-default-branch', `One of the newest ${policy.keepLatest} successful builds of ${i.family} on ${ctx.defaultBranch}.`)
-    if (lastInstaller.has(a.id)) return V('keep', 'last-installer', `The last usable installer for ${i.platform === 'unknown' ? 'its platform' : i.platform}.`)
+    const n = newerOk.get(a.id) ?? 0
+    const N = policy.keepLatest
+    const where = channelText(i.channel)
+    const target = [i.platform === 'unknown' ? '' : i.platform, i.arch === 'any' ? '' : i.arch].filter(Boolean).join(' ') || 'any platform'
+    const pr = ctx.pulls.find(p => run!.pullNumbers.includes(p.number) || run!.headBranch === p.headRef || run!.headSha === p.headSha)
+    if (pr && n < N) return V('keep', 'open-pr', `Belongs to open pull request #${pr.number} and is among the newest ${N} builds of ${where}.`)
+    if (i.ok && n < N) return V('keep', 'newest-successful', `One of the newest ${N} successful builds of ${i.family} (${target}) on ${where}.`)
+    if (lastInstaller.has(a.id)) return V('keep', 'last-installer', `The last usable installer for ${target}.`)
 
     // A build made from a release tag may be the only copy of something that was shipped; it is never plain CI output.
-    if (run.event === 'release' || (run.headBranch && ctx.releaseTags?.has(run.headBranch))) return V('review', 'tag-build', `Built from release tag ${run.headBranch}: not the current release, but not offered for deletion automatically.`)
+    if (i.channel.startsWith('tag:')) return V('review', 'tag-build', `Built from release tag ${run!.headBranch ?? ''}: not the current release, but not offered for deletion automatically.`)
     if (i.category === 'other') return V('review', 'category-unreviewed', 'Its purpose is not recognised from the name, so GitManager will not suggest deleting it.')
     if (i.category === 'evidence' || !policy.deleteCategories.includes(i.category)) return V('review', 'category-disabled', `Cleanup of ${i.category} output is not enabled in this repository's policy.`)
 
-    const temp = i.category === 'report' || i.category === 'logs' ? policy.reportDays : policy.tempDays
     const ageDays = Math.floor((ctx.now - i.t) / DAY)
-    const n = successfulNewer.get(a.id) ?? 0
-    const enough = n >= policy.keepLatest
-    if (i.ok) {
-      if (!enough) return V('review', 'no-newer-build', 'Not superseded by enough newer successful builds.')
-      if (ageDays < temp) return V('keep', 'recent', `Recent: ${ageDays} d old, kept for ${temp} d.`)
-      const code: ReasonCode = i.category === 'report' || i.category === 'logs' ? 'obsolete-report' : 'superseded-build'
-      return V('delete-candidate', code, i.category === 'report' || i.category === 'logs'
-        ? `Obsolete ${i.category === 'logs' ? 'log' : 'CI report'}: ${plural(n, 'newer successful run')} produced the same output, and it is ${ageDays} d old.`
-        : `Superseded temporary build: ${plural(n, 'newer successful build')} of ${i.family}, and it is ${ageDays} d old.`)
+    const report = i.category === 'report' || i.category === 'logs'
+    if (!i.ok) {
+      const outcome = run!.conclusion ?? 'unfinished'
+      const grace = policy.failedGraceDays
+      if (policy.failedOutput === 'delete-superseded' && n >= N && ageDays >= grace) {
+        return { ...V('delete-candidate', 'superseded-failed', `Output of a ${outcome} run; your failure-output policy allows deleting it once ${plural(N, 'newer successful build')} of ${i.family} exist on ${where} (${n} do) and ${grace} d have passed.`), n }
+      }
+      return V('review', 'failed-run', policy.failedOutput === 'delete-superseded'
+        ? `Output of a ${outcome} run, kept until ${plural(N, 'newer successful build')} exist on ${where}${grace ? ` and ${grace} d have passed` : ''}.`
+        : `Output of a ${outcome} run. It may be useful for debugging, so it is only deleted by you; allow it in the policy to offer superseded failed output.`)
     }
-    const outcome = run.conclusion ?? 'unfinished'
-    if (enough && ageDays >= temp) return V('delete-candidate', 'superseded-failed', `Output of a ${outcome} run, superseded by ${plural(n, 'newer successful build')} and ${ageDays} d old.`)
-    return V('review', 'failed-run', `Output of a ${outcome} run, kept for debugging until a newer successful build supersedes it.`)
+    if (n < N) return V('review', 'no-newer-build', `Only ${n} newer successful ${n === 1 ? 'build' : 'builds'} of ${i.family} on ${where}; ${N} are needed.`)
+    const grace = report ? policy.reportGraceDays : policy.graceDays
+    const what = report ? (i.category === 'logs' ? 'log' : 'CI report') : 'build'
+    if (ageDays < grace) {
+      const until = new Date(i.t + grace * DAY).toISOString()
+      return { ...V('keep', 'grace-period', `Superseded by ${plural(n, 'newer successful build')} on ${where}; retained by the ${grace} d grace period until ${until.slice(0, 10)}.`), n, graceUntil: until }
+    }
+    return { ...V('delete-candidate', report ? 'obsolete-report' : 'superseded-build', `Superseded ${what}: ${plural(n, 'newer successful build')} of ${i.family} (${target}) exist on ${where}${grace ? `, and the ${grace} d grace period has passed` : '; no grace period is set'}.`), n }
   }
 
   return raws.map(a => {
@@ -206,6 +209,7 @@ export function classifyRepo(raws: readonly RawArtifact[], ctx: ClassifyContext)
       id: a.id, repo: a.repo, name: a.name, sizeBytes: a.sizeBytes, createdAt: a.createdAt, expiresAt: a.expiresAt, expired: a.expired,
       runId: a.runId, headBranch: i.run?.headBranch ?? a.headBranch, headSha: i.run?.headSha ?? a.headSha, run: i.run,
       category: i.category, platform: i.platform, class: v.cls, reasonCode: v.code, reason: v.reason, pinned: ctx.pinned.has(a.id),
+      channel: i.channel, newerBuilds: complete(a) ? newerOk.get(a.id) ?? 0 : null, graceUntil: (v as { graceUntil?: string | null }).graceUntil ?? null,
     }
   })
 }

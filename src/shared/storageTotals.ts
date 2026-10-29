@@ -10,6 +10,9 @@ export type Totals = {
   byCategory: Record<ArtifactCategory, Bucket>
   /** Verified delete candidates in repositories the user can delete from. */
   reclaimableBytes: number
+  /** Superseded builds that an optional grace period still retains: eligible later, not now. */
+  graceBytes: number
+  graceCount: number
 }
 
 const emptyBucket = (): Bucket => ({ count: 0, bytes: 0 })
@@ -18,7 +21,7 @@ export const CATEGORIES: ArtifactCategory[] = ['installer', 'build', 'report', '
 
 export function totalsOf(artifacts: readonly Artifact[], canDelete = true): Totals {
   const t: Totals = {
-    artifacts: 0, expired: 0, retainedBytes: 0, reclaimableBytes: 0,
+    artifacts: 0, expired: 0, retainedBytes: 0, reclaimableBytes: 0, graceBytes: 0, graceCount: 0,
     byClass: { protected: emptyBucket(), keep: emptyBucket(), review: emptyBucket(), 'delete-candidate': emptyBucket(), expired: emptyBucket() },
     byCategory: { installer: emptyBucket(), build: emptyBucket(), report: emptyBucket(), logs: emptyBucket(), evidence: emptyBucket(), other: emptyBucket() },
   }
@@ -31,6 +34,7 @@ export function totalsOf(artifacts: readonly Artifact[], canDelete = true): Tota
     t.byCategory[a.category].count++
     t.byCategory[a.category].bytes += a.sizeBytes
     if (a.class === 'delete-candidate' && canDelete) t.reclaimableBytes += a.sizeBytes
+    if (a.reasonCode === 'grace-period' && canDelete) { t.graceBytes += a.sizeBytes; t.graceCount++ }
   }
   return t
 }
@@ -41,7 +45,7 @@ export function snapshotTotals(s: Snapshot): Totals & { repos: number; failedRep
   const parts = s.repos.map(repoTotals)
   const sum = totalsOf([])
   for (const p of parts) {
-    sum.artifacts += p.artifacts; sum.expired += p.expired; sum.retainedBytes += p.retainedBytes; sum.reclaimableBytes += p.reclaimableBytes
+    sum.artifacts += p.artifacts; sum.expired += p.expired; sum.retainedBytes += p.retainedBytes; sum.reclaimableBytes += p.reclaimableBytes; sum.graceBytes += p.graceBytes; sum.graceCount += p.graceCount
     for (const c of CLASSES) { sum.byClass[c].count += p.byClass[c].count; sum.byClass[c].bytes += p.byClass[c].bytes }
     for (const c of CATEGORIES) { sum.byCategory[c].count += p.byCategory[c].count; sum.byCategory[c].bytes += p.byCategory[c].bytes }
   }

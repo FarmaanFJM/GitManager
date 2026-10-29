@@ -25,7 +25,9 @@ export const CLASS_COLOR: Record<ArtifactClass, string> = {
   protected: 'var(--text-2)', keep: 'var(--text-3)', review: 'var(--warn)', 'delete-candidate': 'var(--accent)', expired: 'var(--s4)',
 }
 
-export function ClassTag({ cls }: { cls: ArtifactClass }) {
+/** A superseded build that an optional grace period still retains is shown as such, apart from a plain Keep. */
+export function ClassTag({ cls, reasonCode }: { cls: ArtifactClass; reasonCode?: string }) {
+  if (reasonCode === 'grace-period') return <Tag color="var(--warn)">Grace period</Tag>
   return <Tag color={CLASS_COLOR[cls]}>{CLASS_LABEL[cls]}</Tag>
 }
 

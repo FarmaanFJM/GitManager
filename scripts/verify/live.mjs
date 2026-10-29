@@ -8,7 +8,7 @@
 //   node scripts/verify/live.mjs diff before.json after.json
 //   node scripts/verify/live.mjs requests <request.log> --expect none | --expect canary --repo o/r --id 123
 //   node scripts/verify/live.mjs audit [--log <storage-audit.jsonl>]
-//   node scripts/verify/live.mjs explain --repo o/r [--temp-days 7] [--plus-days 0] [--save dir | --from dir]   (why artifacts are or are not candidates; what-if)
+//   node scripts/verify/live.mjs explain --repo o/r [--grace-days 0] [--plus-days 0] [--save dir | --from dir]   (why artifacts are or are not candidates; what-if)
 //   node scripts/verify/live.mjs canary-create --repo o/r             (creates a disposable branch, workflow and artifacts)
 //   node scripts/verify/live.mjs canary-cleanup --repo o/r --branch storage-canary-123 --yes
 //
@@ -339,8 +339,8 @@ async function explain() {
   const raws = d.artifacts.map(a => ({ id: a.id, repo: d.repo, name: a.name, sizeBytes: a.size_in_bytes, createdAt: a.created_at, expiresAt: a.expires_at, expired: a.expired, runId: a.workflow_run?.id ?? null, headBranch: a.workflow_run?.head_branch ?? null, headSha: a.workflow_run?.head_sha ?? null }))
   const active = [...d.releases.filter(r => r.draft), ...d.releases.filter(r => !r.draft && !r.prerelease).slice(0, 1), ...d.releases.filter(r => !r.draft && r.prerelease).slice(0, 1)].map(r => ({ tag: r.tag_name, sha: null, draft: r.draft, prerelease: r.prerelease }))
   const base = Date.now() + Number(flag('plus-days', '0')) * 86400000
-  const classify = (tempDays, now) => classifyRepo(raws, { now, policy: { ...DEFAULT_POLICY, tempDays, reportDays: Math.max(tempDays, 1) }, protectedRepo: false, pinned: new Set(), runs: runMap, pulls: d.pulls.map(p => ({ number: p.number, headRef: p.head.ref, headSha: p.head.sha })), releases: active, releaseTags: new Set([...d.releases.map(r => r.tag_name), ...d.tags]), defaultBranch: d.defaultBranch, docs: d.docs, context: { runs: true, pulls: true, releases: true, docs: d.docs !== null } })
-  const out = classify(Number(flag('temp-days', '7')), base)
+  const classify = (graceDays, now) => classifyRepo(raws, { now, policy: { ...DEFAULT_POLICY, graceDays, reportGraceDays: graceDays }, protectedRepo: false, pinned: new Set(), runs: runMap, pulls: d.pulls.map(p => ({ number: p.number, headRef: p.head.ref, headSha: p.head.sha })), releases: active, releaseTags: new Set([...d.releases.map(r => r.tag_name), ...d.tags]), defaultBranch: d.defaultBranch, docs: d.docs, context: { runs: true, pulls: true, releases: true, docs: d.docs !== null } })
+  const out = classify(Number(flag('grace-days', '0')), base)
   const live = out.filter(a => !a.expired)
   console.log(`${d.repo}: ${live.length} live artifacts, ${formatBytes(live.reduce((n, a) => n + a.sizeBytes, 0))}; default branch ${d.defaultBranch}; ${d.releases.length} releases, ${d.tags.length} tags, ${d.pulls.length} open PRs; docs ${d.docs === null ? 'NOT READ' : 'read'}\n`)
   const fam = {}
@@ -353,9 +353,9 @@ async function explain() {
     for (const [k, v] of Object.entries(by).sort()) console.log(`    ${k}: ${v[0]} (${formatBytes(v[1])})`)
   }
   const sum = (o) => o.filter(a => a.class === 'delete-candidate').reduce((n, a) => n + a.sizeBytes, 0)
-  console.log(`\nreclaimable now with age ${flag('temp-days', '7')} d: ${formatBytes(sum(out))}`)
-  for (const [days, plus] of [[1, 0], [3, 0], [7, 0], [7, 3], [7, 7], [7, 14]]) console.log(`  what-if age ${days} d, ${plus ? `in ${plus} days` : 'today'}: ${formatBytes(sum(classify(days, Date.now() + plus * 86400000)))}`)
-  console.log('\nWhy nothing more is a candidate is the reason histogram above: recent = younger than the age; failed-run = output of a failed run not yet superseded; open-pr, newest-successful, newest-default-branch, last-installer = retained by rule; tag-build = built from a release tag.')
+  console.log(`\nreclaimable now with a ${flag('grace-days', '0')} d grace period: ${formatBytes(sum(out))}`)
+  for (const days of [0, 1, 3, 7]) console.log(`  what-if grace period ${days} d: ${formatBytes(sum(classify(days, Date.now())))}`)
+  console.log('\nWhy nothing more is a candidate is the reason histogram above: grace-period = superseded but inside the optional grace period; failed-run = output of a failed or cancelled run (only you decide, unless the policy allows it); open-pr, newest-successful, newest-default-branch, last-installer = retained by rule; tag-build = built from a release tag.')
 }
 
 function canaryCreate() {

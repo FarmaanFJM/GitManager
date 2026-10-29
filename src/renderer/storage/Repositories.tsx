@@ -154,7 +154,7 @@ export function RepoDetail({ st, repo, onBack, onEditPolicy, onReview }: { st: S
                 {a.run?.conclusion && a.run.conclusion !== 'success' && <span className="gm-warn"> {a.run.conclusion}</span>}
               </span>
               <span role="cell" className="truncate gm-mono-sm" title={`${a.headBranch ?? ''} ${a.headSha ?? ''}`}>{a.headBranch ?? '–'} <span className="faint">{a.headSha ? a.headSha.slice(0, 7) : ''}</span></span>
-              <span role="cell"><ClassTag cls={a.class} /></span>
+              <span role="cell"><ClassTag cls={a.class} reasonCode={a.reasonCode} /></span>
               <span role="cell" className="gm-reason" title={a.reason}>{a.reason}</span>
               <span role="cell" className="gm-row-actions">
                 <MenuButton size="sm" label={`Actions for ${a.name}`} items={[

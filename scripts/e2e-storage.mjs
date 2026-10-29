@@ -125,7 +125,7 @@ try {
   const count = Number(/(\d+) artifacts/.exec(sum)[1])
   check(count > 10 && /recovers/.test(sum), 'the preview states how many artifacts and how much space', sum)
   check(await page.locator('.gm-cgroup').count() === 4, 'candidates are grouped by repository (four repositories affected)')
-  check(await page.getByRole('button', { name: /^Delete \d+ artifacts permanently/ }).count() === 1 && /permanent/.test(await text('.gm-cleanup .gm-hint')), 'permanence is stated once, on the button and above the list')
+  check(await page.getByRole('button', { name: /^Delete \d+ artifacts permanently/ }).count() === 1 && /permanent/.test((await page.locator('.gm-cleanup .gm-hint').allInnerTexts()).join(' ')), 'permanence is stated once, on the button and above the list')
   check(await page.locator('text=Review:').count() === 1, 'ambiguous artifacts are listed apart and not selected')
   await page.getByRole('button', { name: /^Excluded/ }).click()
   check((await page.locator('.gm-cleanup-extra .gm-notes').last().innerText()).includes('Protected') === false && /\(/.test(await page.locator('.gm-cleanup-extra .gm-notes').last().innerText()), 'excluded artifacts are listed with their reasons')

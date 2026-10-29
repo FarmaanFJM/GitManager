@@ -9,7 +9,7 @@ const ALL_CATEGORIES: ArtifactCategory[] = ['installer', 'build', 'report', 'log
 
 /** The conservative defaults used to *classify* (display). They never enable any cleanup: every repository starts in manual mode. */
 export const DEFAULT_POLICY: RepoPolicy = {
-  mode: 'manual', keepLatest: 2, tempDays: 7, reportDays: 14, deleteCategories: [...ALL_CATEGORIES],
+  mode: 'manual', keepLatest: 2, graceDays: 0, reportGraceDays: 0, failedOutput: 'review', failedGraceDays: 14, deleteCategories: [...ALL_CATEGORIES],
   evidencePatterns: [...DEFAULT_EVIDENCE], largeDeleteBytes: 1 * GIB, presetId: null, approvedHash: null, approvedAt: null,
 }
 
@@ -25,28 +25,28 @@ export const PRESETS: { id: string; label: string; description: string; policy: 
   {
     id: 'strict-evidence', label: 'Strict evidence preservation (Summa)',
     description: 'Only CI reports and logs may become delete candidates. Installers and builds are never offered. Security, audit, qualification and attestation artifacts are protected.',
-    policy: { keepLatest: 2, tempDays: 14, reportDays: 30, deleteCategories: ['report', 'logs'], evidencePatterns: [...DEFAULT_EVIDENCE, 'security', 'compliance', 'gate', 'pentest'] },
+    policy: { keepLatest: 2, graceDays: 14, reportGraceDays: 30, failedOutput: 'review', deleteCategories: ['report', 'logs'], evidencePatterns: [...DEFAULT_EVIDENCE, 'security', 'compliance', 'gate', 'pentest'] },
   },
   {
     id: 'newest-two-builds', label: 'Newest two successful builds (Herc\'s Adventure)',
-    description: 'Keeps the newest two successful builds of each build family and platform; older superseded builds, reports and logs may be offered. Adjust the evidence patterns if private builds use a specific name.',
-    policy: { keepLatest: 2, tempDays: 7, reportDays: 14, deleteCategories: [...ALL_CATEGORIES] },
+    description: 'Keeps the newest two successful builds of each build family, platform and branch; older superseded builds, reports and logs are offered as soon as they are superseded. Adjust the evidence patterns if private builds use a specific name.',
+    policy: { keepLatest: 2, graceDays: 0, reportGraceDays: 0, failedOutput: 'review', deleteCategories: [...ALL_CATEGORIES] },
   },
   {
     id: 'newest-two-installers', label: 'Newest two installers per platform (Markdown Studio)',
     description: 'Keeps the newest two successful installers for each platform, and always the last usable installer of a platform.',
-    policy: { keepLatest: 2, tempDays: 7, reportDays: 14, deleteCategories: [...ALL_CATEGORIES] },
+    policy: { keepLatest: 2, graceDays: 0, reportGraceDays: 0, failedOutput: 'review', deleteCategories: [...ALL_CATEGORIES] },
   },
   {
     id: 'newest-two-windows', label: 'Newest two verified Windows releases (GitManager)',
     description: 'Keeps the newest two successful Windows builds and anything attached to the current release; older superseded output, reports and logs may be offered.',
-    policy: { keepLatest: 2, tempDays: 7, reportDays: 14, deleteCategories: [...ALL_CATEGORIES] },
+    policy: { keepLatest: 2, graceDays: 0, reportGraceDays: 0, failedOutput: 'review', deleteCategories: [...ALL_CATEGORIES] },
   },
 ]
 
 /** Fields that decide what automatic safe cleanup may delete. Their hash is what the user approved. */
 export function policyHash(p: RepoPolicy): string {
-  const core = { k: p.keepLatest, t: p.tempDays, r: p.reportDays, c: [...p.deleteCategories].sort(), e: p.evidencePatterns.map(x => x.toLowerCase()).sort(), l: p.largeDeleteBytes }
+  const core = { k: p.keepLatest, g: p.graceDays, r: p.reportGraceDays, f: p.failedOutput, fg: p.failedGraceDays, c: [...p.deleteCategories].sort(), e: p.evidencePatterns.map(x => x.toLowerCase()).sort(), l: p.largeDeleteBytes }
   return createHash('sha256').update(JSON.stringify(core)).digest('hex').slice(0, 24)
 }
 
@@ -71,8 +71,11 @@ export function sanitizePolicy(raw: unknown, base: RepoPolicy = DEFAULT_POLICY):
   const p: RepoPolicy = {
     mode: oneOf(r.mode, ['manual', 'recommend', 'auto-safe'] as const, 'manual'),
     keepLatest: num(r.keepLatest, 1, 10, base.keepLatest), // never fewer than one: the last usable build is always kept
-    tempDays: num(r.tempDays, 1, 365, base.tempDays),
-    reportDays: num(r.reportDays, 1, 365, base.reportDays),
+    // tempDays and reportDays are the names an earlier version stored; a value the user chose is kept
+    graceDays: num(r.graceDays ?? r.tempDays, 0, 365, base.graceDays),
+    reportGraceDays: num(r.reportGraceDays ?? r.reportDays, 0, 365, base.reportGraceDays),
+    failedOutput: oneOf(r.failedOutput, ['review', 'delete-superseded'] as const, 'review'),
+    failedGraceDays: num(r.failedGraceDays, 0, 365, base.failedGraceDays),
     deleteCategories: cats,
     evidencePatterns: patterns,
     largeDeleteBytes: num(r.largeDeleteBytes, 0, 1024 * GIB, base.largeDeleteBytes),

@@ -41,9 +41,10 @@ export function CleanupDialog({ st, open, onClose, repos }: { st: StorageState; 
   const review = useMemo(() => scope.filter(r => r.canDelete && !r.error).flatMap(r => r.artifacts.filter(a => a.class === 'review')), [scope])
   const excluded = useMemo(() => {
     const by: Record<ArtifactClass, Artifact[]> = { protected: [], keep: [], review: [], 'delete-candidate': [], expired: [] }
-    for (const r of scope) for (const a of r.artifacts) if (a.class !== 'delete-candidate' && a.class !== 'review' && a.class !== 'expired') by[a.class].push(a)
+    for (const r of scope) for (const a of r.artifacts) if (a.class !== 'delete-candidate' && a.class !== 'review' && a.class !== 'expired' && a.reasonCode !== 'grace-period') by[a.class].push(a)
     const readOnly = scope.filter(r => !r.canDelete).flatMap(r => r.artifacts).filter(a => a.class === 'delete-candidate' || a.class === 'review')
-    return { protected: by.protected, keep: by.keep, readOnly }
+    const grace = scope.flatMap(r => r.artifacts).filter(a => a.reasonCode === 'grace-period')
+    return { protected: by.protected, keep: by.keep, grace, readOnly }
   }, [scope])
 
   useEffect(() => {
@@ -120,6 +121,8 @@ export function CleanupDialog({ st, open, onClose, repos }: { st: StorageState; 
             <strong>{plural(selected.length, 'artifact')}</strong> from {plural(selRepos, 'repository', 'repositories')} selected · recovers <strong className="gm-stat-accent">{formatBytes(bytes)}</strong>
             {reviewSelected ? <span className="gm-warn"> · includes {plural(reviewSelected, 'artifact')} you picked from Review</span> : null}
           </p>
+          {candidates.length > 0 && <p className="gm-hint">Every delete candidate is eligible through <strong>verified supersession</strong>: newer successful builds of the same workflow, output, platform, architecture and branch already exist, so it is redundant now. Nothing here is selected because of its age. Failed or cancelled output is never included unless your policy allows it.</p>}
+          {excluded.grace.length > 0 && <p className="gm-hint">{plural(excluded.grace.length, 'superseded build')} ({formatBytes(excluded.grace.reduce((n, a) => n + a.sizeBytes, 0))}) {excluded.grace.length === 1 ? 'is' : 'are'} held back only by the optional grace period in the policy and become eligible when it ends.</p>}
           <p className="gm-hint">Deleting an artifact is permanent. GitManager rechecks each one with GitHub immediately before deleting and skips anything that changed, became protected, or is no longer a candidate. Your GitHub CLI sign-in is used; no token is shown or stored.</p>
           {error && <p className="gm-field-error" role="alert">{error}</p>}
           {st.auth?.state === 'ok' && st.auth.canWrite === false && <p className="gm-field-error" role="alert">This sign-in cannot delete artifacts. Run <span className="gm-mono">gh auth refresh -s repo</span>, or use “Check without deleting”.</p>}
@@ -141,12 +144,12 @@ export function CleanupDialog({ st, open, onClose, repos }: { st: StorageState; 
 
           <section className="gm-cleanup-extra">
             <button type="button" className="gm-disclose" aria-expanded={showExcluded} onClick={() => setShowExcluded(v => !v)}>
-              <Icon name={showExcluded ? 'chevron-down' : 'chevron-right'} size={14} />Excluded: {excluded.protected.length} protected, {excluded.keep.length} kept{excluded.readOnly.length ? `, ${excluded.readOnly.length} in read-only repositories` : ''}
+              <Icon name={showExcluded ? 'chevron-down' : 'chevron-right'} size={14} />Excluded: {excluded.protected.length} protected, {excluded.keep.length} kept{excluded.grace.length ? `, ${excluded.grace.length} in a grace period` : ''}{excluded.readOnly.length ? `, ${excluded.readOnly.length} in read-only repositories` : ''}
             </button>
             {showExcluded && (
               <ul className="gm-notes">
-                {[...excluded.protected, ...excluded.keep].slice(0, SHOW).map(a => <li key={key(a)}><span className="gm-mono-sm">{a.repo}</span> {a.name} <span className="faint">({a.reason})</span></li>)}
-                {excluded.protected.length + excluded.keep.length > SHOW && <li className="faint">and {excluded.protected.length + excluded.keep.length - SHOW} more</li>}
+                {[...excluded.protected, ...excluded.keep, ...excluded.grace].slice(0, SHOW).map(a => <li key={key(a)}><span className="gm-mono-sm">{a.repo}</span> {a.name} <span className="faint">({a.reason})</span></li>)}
+                {excluded.protected.length + excluded.keep.length + excluded.grace.length > SHOW && <li className="faint">and {excluded.protected.length + excluded.keep.length + excluded.grace.length - SHOW} more</li>}
               </ul>
             )}
           </section>
