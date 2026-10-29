@@ -95,6 +95,15 @@ describe('classification', () => {
     expect(c[byRun.a.id]).toMatchObject({ class: 'protected', reasonCode: 'doc-cited' })
   })
 
+  it('does not let a documentation mention of a recurring artifact name protect every build of it', () => {
+    const items = [1, 2, 3, 4].map(n => art('GitManager-windows-x64', n * 20))
+    const c = classOf(items, { docs: 'download the gitmanager-windows-x64 artifact from any run' })
+    expect(c[items[3].a.id].class).toBe('delete-candidate')
+    // but a run URL still singles one out
+    const cited = classOf(items, { docs: `evidence: https://github.com/o/r/actions/runs/${items[3].run!.id}` })
+    expect(cited[items[3].a.id]).toMatchObject({ class: 'protected', reasonCode: 'doc-cited' })
+  })
+
   it('protects qualification and audit evidence by artifact name or by workflow', () => {
     const a = art('qualification-report', 300)
     const b = art('output', 300, {}, run({ name: 'Security audit', path: '.github/workflows/audit.yml' }))

@@ -178,21 +178,25 @@ export async function scanAll(gh: GitHub, auth: Extract<AuthState, { state: 'ok'
     billing = await gh.billing(auth.login)
   }
   const failed = repoInv.filter(r => r.error).length
+  const skipped = all.length - selectRepos(all, auth.login, o.config).length
   const complete = !aborted && !o.signal?.cancelled && repoInv.length === repos.length
   const snapshot: Snapshot = {
     scannedAt: new Date(now).toISOString(), lastSuccessfulScanAt: complete && failed === 0 ? new Date(now).toISOString() : null,
-    login: auth.login, repos: repoInv, packages, billing, limitations: limitationsFor(auth, repoInv, packages, billing, aborted), alerts: [],
+    login: auth.login, repos: repoInv, packages, billing, skippedRepos: all.length - selectRepos(all, auth.login, o.config).length,
+    limitations: [], alerts: [],
   }
+  snapshot.limitations = limitationsFor(auth, repoInv, packages, billing, aborted, skipped)
   return { snapshot, failed, aborted }
 }
 
-export function limitationsFor(auth: Extract<AuthState, { state: 'ok' }>, repos: RepoInventory[], packages: PackagesInventory, billing: BillingInfo, aborted: string | null): string[] {
+export function limitationsFor(auth: Extract<AuthState, { state: 'ok' }>, repos: RepoInventory[], packages: PackagesInventory, billing: BillingInfo, aborted: string | null, skipped = 0): string[] {
   const out: string[] = []
   if (aborted) out.push(`The scan stopped early: ${aborted}`)
   if (auth.canWrite === false) out.push('This GitHub CLI sign-in has no write scope, so GitManager is read-only: it can scan but not delete. Add the scope with: gh auth refresh -s repo')
   else if (auth.canWrite === null) out.push('GitHub did not report this sign-in\'s scopes (fine-grained or app token). Scanning works; deletion needs "Actions: write" and is only confirmed when GitHub accepts it.')
   const failed = repos.filter(r => r.error)
   if (failed.length) out.push(`${failed.length} ${failed.length === 1 ? 'repository' : 'repositories'} could not be inventoried: ${failed.slice(0, 4).map(r => r.repo).join(', ')}${failed.length > 4 ? ', …' : ''}. Their numbers are not included.`)
+  if (skipped > 0) out.push(`${skipped} accessible ${skipped === 1 ? 'repository was' : 'repositories were'} not scanned (read-only for you, archived, or outside the scan scope chosen in Auto Cleanup). Artifacts there cannot be deleted by you.`)
   const noWrite = repos.filter(r => !r.canDelete && !r.error)
   if (noWrite.length) out.push(`${noWrite.length} scanned ${noWrite.length === 1 ? 'repository is' : 'repositories are'} archived or read-only for you; their artifacts are listed but cannot be deleted.`)
   const lowConf = repos.filter(r => !r.error && Object.values(r.context).some(v => !v))

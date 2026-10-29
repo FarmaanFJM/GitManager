@@ -7,11 +7,12 @@ import { AddRepoDialog, FindReposDialog } from './dialogs'
 import { ProfileEditor } from './ProfileEditor'
 import { SettingsView } from './Settings'
 import { Sidebar } from './Sidebar'
+import { StorageView } from './Storage'
 import { Workspace, WelcomeEmpty } from './Workspace'
 import { isTyping } from './util'
 
 export type RepoView = { status?: RepoStatus; error?: OpError; loading: boolean }
-export type View = { kind: 'repo' } | { kind: 'settings' } | { kind: 'profile'; profile: Profile; isNew: boolean }
+export type View = { kind: 'repo' } | { kind: 'settings' } | { kind: 'storage' } | { kind: 'profile'; profile: Profile; isNew: boolean }
 
 /** Everything the screens need, loaded from the main process and kept current by its events. */
 export type Model = {
@@ -173,6 +174,7 @@ export function App() {
   return (
     <AppShell sidebar={<Sidebar model={model} actions={actions} view={view} />}>
       {view.kind === 'settings' ? <SettingsView model={model} actions={actions} />
+        : view.kind === 'storage' ? <StorageView />
         : view.kind === 'profile' && repo ? <ProfileEditor key={view.profile.id} model={model} actions={actions} repo={repo} initial={view.profile} isNew={view.isNew} />
           : repo ? <Workspace key={repo.id} model={model} actions={actions} repo={repo} />
             : <WelcomeEmpty hasRepos={model.data.repos.length > 0} searching={!!model.discovery?.running} onAdd={actions.addRepoDialog} />}

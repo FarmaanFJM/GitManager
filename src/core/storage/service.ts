@@ -8,7 +8,7 @@ import { formatBytes } from '../../shared/storageTotals.js'
 import { computeAlerts } from './alerts.js'
 import { AuditLog } from './audit.js'
 import { buildPlan, executePlan, findArtifact, reconcileAudit, toPlanItem } from './cleanup.js'
-import { policyFor, policyHash, PRESETS, repoKey, sanitizePolicy, sanitizeSettings, validRepoName } from './config.js'
+import { effectiveMode, policyFor, policyHash, PRESETS, repoKey, sanitizePolicy, sanitizeSettings, validRepoName } from './config.js'
 import { GhError, type GhApi } from './gh.js'
 import { GitHub } from './github.js'
 import { isDue, nextRunAt, SCHEDULE_NOTE, scheduledRepos, splitForAuto } from './scheduler.js'
@@ -120,6 +120,7 @@ export class StorageService extends EventEmitter {
     return {
       snapshot, auth: this.auth, config: this.cfg(), scan: this.scanP, operation: this.opP, scheduler: this.scheduler(),
       recommendation: this.p.recommendation, lastOperation: this.p.lastOperation,
+      effectiveModes: { default: effectiveMode(this.cfg().defaultPolicy), ...Object.fromEntries(Object.entries(this.cfg().policies).map(([k, v]) => [k, effectiveMode(v)])) },
       presets: PRESETS.map(({ id, label, description, policy }) => ({ id, label, description, policy })),
     }
   }
@@ -173,7 +174,7 @@ export class StorageService extends EventEmitter {
       if (only && old) {
         const keys = new Set(snap.repos.map(r => repoKey(r.repo)))
         const repos = [...old.repos.filter(r => !keys.has(repoKey(r.repo))), ...snap.repos]
-        snap = { ...old, repos, scannedAt: snap.scannedAt, limitations: limitationsFor(auth, repos, old.packages, old.billing, res.aborted) }
+        snap = { ...old, repos, scannedAt: snap.scannedAt, skippedRepos: res.snapshot.skippedRepos, limitations: limitationsFor(auth, repos, old.packages, old.billing, res.aborted, res.snapshot.skippedRepos) }
       } else {
         snap.lastSuccessfulScanAt = snap.lastSuccessfulScanAt ?? old?.lastSuccessfulScanAt ?? null
       }

@@ -24,6 +24,7 @@ export function computeAlerts(i: AlertInput): StorageAlert[] {
     }
   }
   if (alerts.repeatedBuilds) {
+    const found: { repo: string; message: string; bytes: number }[] = []
     for (const r of i.snapshot.repos) {
       const groups = new Map<string, { n: number; bytes: number }>()
       for (const a of r.artifacts) {
@@ -34,8 +35,10 @@ export function computeAlerts(i: AlertInput): StorageAlert[] {
         g.n++; g.bytes += a.sizeBytes; groups.set(k, g)
       }
       const worst = [...groups.entries()].filter(([, g]) => g.n >= 4 && g.bytes >= 200 * MIB).sort((a, b) => b[1].bytes - a[1].bytes)[0]
-      if (worst) add({ id: `repeated:${r.repo}`, kind: 'repeated-builds', severity: 'info', repo: r.repo, message: `${r.repo} keeps ${worst[1].n} copies of "${worst[0].split('|')[2]}" totalling ${formatBytes(worst[1].bytes)}.` })
+      if (worst) found.push({ repo: r.repo, bytes: worst[1].bytes, message: `${r.repo} keeps ${worst[1].n} copies of "${worst[0].split('|')[2]}" totalling ${formatBytes(worst[1].bytes)}.` })
     }
+    // quiet by design: only the two largest, not one line per repository
+    for (const f of found.sort((a, b) => b.bytes - a.bytes).slice(0, 2)) add({ id: `repeated:${f.repo}`, kind: 'repeated-builds', severity: 'info', repo: f.repo, message: f.message })
   }
   if (alerts.oldBuilds && t.retainedBytes > 0 && t.reclaimableBytes >= 100 * MIB && t.reclaimableBytes / t.retainedBytes >= 0.3) {
     add({ id: 'old-builds', kind: 'old-builds', severity: 'info', message: `${formatBytes(t.reclaimableBytes)} (${Math.round((100 * t.reclaimableBytes) / t.retainedBytes)}%) of retained artifacts are superseded builds that can be cleaned up.` })

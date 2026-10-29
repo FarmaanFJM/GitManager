@@ -95,6 +95,8 @@ export type Snapshot = {
   repos: RepoInventory[]
   packages: PackagesInventory
   billing: BillingInfo
+  /** Accessible repositories left out of the scan (read-only for you, archived, or outside the chosen scope). */
+  skippedRepos: number
   limitations: string[]
   alerts: StorageAlert[]
 }
@@ -229,6 +231,8 @@ export type StorageState = {
   scheduler: SchedulerState
   recommendation: Recommendation | null
   lastOperation: OperationResult | null
+  /** Mode that actually applies per repository ('default' for the default policy): an unapproved or edited automatic policy runs as recommend. */
+  effectiveModes: Record<string, Mode>
   presets: { id: string; label: string; description: string; policy: Partial<RepoPolicy> }[]
 }
 

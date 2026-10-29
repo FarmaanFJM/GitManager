@@ -124,6 +124,11 @@ export function classifyRepo(raws: readonly RawArtifact[], ctx: ClassifyContext)
     if (pick) lastInstaller.add(pick.id)
   }
 
+  // A name that many artifacts share (every CI run uploads "app-windows-x64") says nothing about one of them, so a documentation
+  // mention of such a name protects no particular build; only a name unique in the repository, or a run URL, identifies one.
+  const nameCount = new Map<string, number>()
+  for (const a of raws) nameCount.set(a.name.toLowerCase(), (nameCount.get(a.name.toLowerCase()) ?? 0) + 1)
+
   const missing = Object.entries({ runs: 'workflow runs', pulls: 'open pull requests', releases: 'releases', docs: 'documentation' })
     .filter(([k]) => !ctx.context[k as keyof typeof ctx.context]).map(([, v]) => v)
 
@@ -136,7 +141,7 @@ export function classifyRepo(raws: readonly RawArtifact[], ctx: ClassifyContext)
     const ev = has(a.name, policy.evidencePatterns) ?? has(run?.name, policy.evidencePatterns) ?? has(run?.path, policy.evidencePatterns)
     if (ev) return V('protected', 'evidence', `Qualification or audit evidence (matches "${ev}").`)
     const nm = a.name.toLowerCase()
-    if (ctx.docs !== null && ((nm.length >= 6 && ctx.docs.includes(nm)) || (a.runId !== null && ctx.docs.includes(`/actions/runs/${a.runId}`)))) {
+    if (ctx.docs !== null && ((nm.length >= 6 && nameCount.get(nm) === 1 && ctx.docs.includes(nm)) || (a.runId !== null && ctx.docs.includes(`/actions/runs/${a.runId}`)))) {
       return V('protected', 'doc-cited', 'Cited by the repository documentation.')
     }
     const rel = ctx.releases.find(r => (run?.headBranch && run.headBranch === r.tag) || (a.headBranch && a.headBranch === r.tag) || (r.sha && (run?.headSha === r.sha || a.headSha === r.sha)))
