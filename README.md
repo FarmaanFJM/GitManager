@@ -30,7 +30,7 @@ Open GitManager, select a repository, fetch and pull, pick a branch, press Run, 
 - Opening a branch shows its reference, comparison base, counts, latest commit, the commits only on it, the commits on the default branch it lacks, and the files changed since the merge base. Switching (or creating a local tracking branch) is an explicit button that reuses the safe switch, including the running-services guard. Inspection itself only reads.
 - Remote data is labelled with the time of the last fetch, so it is not mistaken for live GitHub state.
 
-GitManager never discards changes, resets, force-pulls, rebases, merges, deletes branches, force-pushes or stashes. Pull is `git fetch` followed by `git merge --ff-only --no-autostash`; a diverged branch, a missing upstream or conflicts are refused before anything runs, and when Git itself refuses (local changes would be overwritten) the repository is left exactly as it was.
+GitManager never discards changes, resets, force-pulls, rebases, merges, deletes branches (the Storage view deletes GitHub Actions artifacts only, and nothing else), force-pushes or stashes. Pull is `git fetch` followed by `git merge --ff-only --no-autostash`; a diverged branch, a missing upstream or conflicts are refused before anything runs, and when Git itself refuses (local changes would be overwritten) the repository is left exactly as it was.
 
 **Development services**
 - Each repository can have several profiles. A profile has a runtime (Windows, or a WSL distribution), a working directory, one or more services, a URL to open and a preferred browser (Chrome, Edge, system default).
@@ -39,6 +39,15 @@ GitManager never discards changes, resets, force-pulls, rebases, merges, deletes
 - Stop ends the process tree GitManager started (gracefully, then forced after a grace period). It never kills "whatever uses the port". If the readiness port is already taken before a start, GitManager refuses to start and leaves the other process alone.
 - Switching branches while services run asks you to stop them first.
 - Nothing from a repository is ever executed automatically. A profile runs only after you review its exact commands and trust it, and any change to a command, directory, environment or runtime asks again.
+
+**Storage (GitHub Actions artifacts)**
+- A **Storage** view in the sidebar answers three questions: what is consuming your GitHub Actions artifact storage, what can be deleted safely, and how much space that recovers. Scan reads every repository you can write to through your own GitHub CLI session (`gh auth login`): artifacts with size, dates, workflow, run, branch and commit, plus Actions caches and packages, listed separately and never added to the artifact total.
+- Each artifact is classified Protected, Keep, Review or Delete candidate with the reason shown. Evidence and audit artifacts, the current release, open pull requests, pinned artifacts and protected repositories are never offered; the newest two successful builds of each kind (and the last usable installer of each platform) are kept; uncertain artifacts go to Review and are never selected for you. Age alone decides nothing.
+- **Review cleanup** previews exactly what would be deleted, by repository, with reasons and the space recovered, then deletes through GitHub's documented artifact API after one explicit authorization. Every artifact is revalidated with GitHub immediately before deletion; anything that changed or became protected is skipped. Only artifacts GitHub confirms are gone count as reclaimed, and each attempt and outcome goes to a local, tamper-evident audit log.
+- **Auto Cleanup** is off by default: manual, recommendations, or automatic safe cleanup per repository, daily, weekly or monthly, running only while GitManager is open. No token is ever requested, no service is installed, and Git branch management is untouched.
+- It does not invent numbers: GitHub's API reports neither your included allowance nor package sizes, so GitManager shows neither, labels accrued GB-hours separately from stored bytes, and says "Billing data unavailable" when billing cannot be read. See [Storage](docs/STORAGE.md).
+
+![Storage overview](docs/screenshots/storage-01-overview.png)
 
 **Window and startup**
 - On Windows there is no separate title bar: Windows' own minimize, maximize (with Snap layouts) and close buttons sit on the charcoal main panel (`#1B1C1C`), beside the repository header, and the GitManager logo and name are at the top of the sidebar. Drag the top of the window to move it, double-click to maximize; resizing and Snap work as in any Windows app.
@@ -86,15 +95,19 @@ npm run verify:branding   # logo colours, transparency, ICO frames, packaging ic
 npm run typecheck
 npm test                  # unit and integration tests: temporary Git repositories and real processes
 npm run test:e2e          # the first-release acceptance scenario against the built app
+npm run test:e2e:storage  # the Storage scenario: the real app against a stand-in for the GitHub CLI (no network, no real repository)
 node scripts/e2e-windows.mjs release/GitManager-<version>-x64.exe   # Windows: install and test the installed build
 ```
 
 `npm run test:e2e` builds a CaissaTrainer-shaped project (a Vite frontend and a Spring Boot backend started with `./mvnw spring-boot:run`) in a real Git repository with a bare remote and a teammate clone, then drives GitManager through registration, fetch, fast-forward pull, branch switching, profile setup, Run, readiness, logs, Open in Chrome, Stop, restart of the app, and a refused unsafe pull. It needs Java and Maven, Chrome or Chromium, and a display (`xvfb-run` on Linux). It also checks the title bar layout, the tray, start minimized at sign-in and the single instance. It writes screenshots, Summa-UI check results and a step report to `e2e-output/`.
 
+`npm run test:e2e:storage` launches the built app with `GITMANAGER_GH` pointing at `scripts/e2e/fake-gh.mjs`, a stand-in for `gh api` that serves a demonstration world of four repositories and applies deletions to it, then drives Storage: scan, tables, filters, sorting, pinning, cleanup preview, a dry run, real deletion with GitHub-confirmed results, the audit log, Auto Cleanup, persistence across a restart, and the sign-in and permission errors. Needs a display (`xvfb-run` on Linux); no Java or Chrome. It writes screenshots and a step report to `e2e-output/storage/`.
+
 `scripts/e2e-windows.mjs` (Windows only, run by CI on `windows-latest`) installs the NSIS installer silently, starts the installed `GitManager.exe` and drives it with real Windows mouse and keyboard input: double-click and the caption buttons to maximize, restore and minimize, dragging and resizing, Win+Left, the colours around the caption buttons in both window states and at 150 % scale, the startup entry in the registry (including one turned off in Task Manager), minimize to tray, the second instance, and that uninstalling removes the startup entry.
 
 ## Documentation
 
+- [Storage](docs/STORAGE.md): artifact inventory, classification rules, safe deletion, Auto Cleanup, and what the GitHub API cannot tell.
 - [Architecture](docs/ARCHITECTURE.md): modules, process model, security, Windows and WSL execution.
 - [Summa-UI adoption](docs/SUMMA_UI_ADOPTION.md): pinned release, component reuse, deviations, check results, feedback filed.
 - [Acceptance results](docs/ACCEPTANCE.md): what was verified, how, and what was not.

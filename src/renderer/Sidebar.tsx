@@ -34,7 +34,7 @@ export function Sidebar({ model, actions, view }: { model: Model; actions: Actio
   const row = (r: typeof repos[number]) => {
     const st = model.statuses[r.id]?.status
     const meta = st ? [st.behind ? `↓${st.behind}` : '', st.ahead ? `↑${st.ahead}` : ''].filter(Boolean).join(' ') : ''
-    const current = view.kind === 'repo' && model.data.ui.selectedRepoId === r.id
+    const current = view.kind !== 'settings' && view.kind !== 'storage' && model.data.ui.selectedRepoId === r.id
     return (
       <button key={r.id} type="button" className="nav-item" aria-current={current ? 'true' : undefined} onClick={() => actions.select(r.id)}
         title={`${r.location.kind === 'wsl' ? `${r.location.distro}: ${r.location.path}` : r.location.path}${r.worktree ? ' (worktree)' : ''}`}>

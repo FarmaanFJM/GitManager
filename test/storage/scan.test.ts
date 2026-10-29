@@ -106,3 +106,18 @@ describe('scan', () => {
     expect(writable.snapshot.repos.map(r => r.repo).sort()).toEqual(['me/app', 'me/lib'])
   })
 })
+
+describe('quota errors', () => {
+  it('surfaces a storage quota message from GitHub as an alert', async () => {
+    const { StorageService } = await import('../../src/core/storage/service.js')
+    const { tempDir } = await import('../helpers.js')
+    const f = world()
+    f.intercept = (_m, p) => (p.startsWith('/repos/me/lib/actions/artifacts') ? { status: 403, headers: {}, body: { message: 'Artifact storage quota has been hit. Wait for usage to refresh.' } } : undefined)
+    const t = tempDir('gm-quota-')
+    const cfg = emptyConfig()
+    const svc = new StorageService({ dir: t.dir, gh: f, config: () => cfg, saveConfig: () => {}, openExternal: async () => {}, now, sleep: async () => {} })
+    await svc.scanAndWait()
+    expect(svc.state().snapshot!.alerts.some(a => a.kind === 'quota-error' && a.message.includes('quota'))).toBe(true)
+    t.cleanup()
+  })
+})

@@ -20,6 +20,15 @@ src/
     launchers.ts   Chrome and Edge discovery, opening URLs, editor command
     store.ts       configuration file: atomic writes, validation on load
     validate.ts    validation of everything that crosses a trust boundary
+  core/storage/  GitHub Actions storage maintenance (see "Storage module" below)
+    gh.ts          the GhApi seam; GhCli runs `gh api` (argument arrays, no token), error mapping, sign-in state
+    github.ts      typed, paginated, rate-limit-aware endpoint calls (the only DELETE is one artifact by id)
+    classify.ts    pure classification: Protected, Keep, Review, Delete candidate, Expired
+    scanner.ts     per-repository inventory with bounded concurrency; a failed lookup lowers confidence, never the other repositories
+    cleanup.ts     cleanup plan and the executor: revalidate, delete, confirm with GitHub
+    audit.ts       append-only, hash-chained local audit log
+    scheduler.ts   schedule arithmetic and the automatic-safe split; service.ts owns scan, operations, schedule and persisted state
+    config.ts      settings, per-repository policies, presets, pins (validated on load); alerts.ts derived warnings
   shared/      types and the API contract shared by all three layers (type-only, plus the method list)
   main/
     backend.ts     application logic behind the API; validates arguments, returns Results
@@ -86,6 +95,18 @@ ready/running/starting ──Stop──▶ stopping ──tree gone──▶ sto
 ```
 
 Output from stdout and stderr is split into lines, ANSI codes removed, carriage-return progress collapsed, kept in a ring buffer of 5000 lines per service and sent to the window in batches. On quit GitManager asks before stopping running services and stops them gracefully; if the process is killed, a synchronous last-resort cleanup forces the trees down.
+
+## Storage module
+
+`StorageService` (core/storage/service.ts, owned by `Backend`) is the only code that talks to GitHub, and only through the `GhApi` interface. `GhCli` implements it with `gh api -i -X <GET|DELETE> <path>`: arguments are an array, the path must match a strict allow-list pattern, `GH_PROMPT_DISABLED`, `NO_COLOR` and an empty `GH_DEBUG` are set, and the process inherits `gh`'s own session. The renderer receives results, never credentials, and has no way to run a command or call an arbitrary endpoint: the API surface is `storageState`, `storageScan`, `storagePreview`, `storageDelete` and a few setters whose arguments the backend validates (repository `owner/name`, positive integer ids, enumerated modes). `storageDelete` refuses without `confirm: true` (a dry run needs none and changes nothing).
+
+Tests replace `GhApi` with an in-memory GitHub (`test/storage/fakeGithub.ts`) that can fail, rate-limit, change data between calls and ignore deletions. The acceptance scenario replaces the `gh` executable itself (`GITMANAGER_GH`).
+
+- **Scan.** `listRepos`, then per repository (four at a time) artifacts, runs, open pull requests, releases, documentation, caches. Completed runs and documentation (by tree sha) are cached for the session. Each lookup that fails is recorded as a limit and sets a context flag; the classifier turns delete candidates into Review when a flag they depend on is false. Only sign-in and rate-limit failures end the whole scan, and the results read so far are kept.
+- **Delete.** `executePlan` works per repository: it reads the repository and re-classifies with the *current* configuration, requires each artifact to match the scan (id, name, size, run, classification), reads the artifact once more, writes the attempt to the audit log, sends `DELETE /repos/{o}/{r}/actions/artifacts/{id}`, and afterwards lists the repository again to confirm. 403 stops that repository, 401 stops everything, a rate limit is waited out only when short, a cancel stops after the current artifact.
+- **Schedule.** `StorageService.start()` runs a one-minute timer in the main process only while GitManager runs; it is off unless the user enabled it, scans only repositories whose mode is not manual, and deletes only through `splitForAuto` (approved policy hash, high-confidence reasons, complete context, below the large-deletion limit). Nothing is installed in the operating system.
+- **Persistence.** Settings, policies, protected repositories and pins are the `storage` section of `gitmanager.json`, validated on load like the rest. The last scan (`storage-state.json`) and the audit log (`storage-audit.jsonl`) are separate files in the same folder.
+- **Branches.** Storage has no connection to Git branch management; GitManager still never deletes branches.
 
 ## Persistence
 

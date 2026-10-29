@@ -51,6 +51,8 @@ jobs:
       - run: npm ci
       - name: Run the first-release scenario
         run: xvfb-run -a --server-args="-screen 0 1600x1000x24" npm run test:e2e
+      - name: Run the Storage scenario (stand-in GitHub CLI, no network)
+        run: xvfb-run -a --server-args="-screen 0 1600x1000x24" npm run test:e2e:storage
       - uses: actions/upload-artifact@v5
         if: always()
         with:

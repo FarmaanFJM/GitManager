@@ -38,7 +38,7 @@ export async function scanRepo(gh: GitHub, repo: RepoSummary, o: ScanOptions): P
   try {
     const r = await gh.listArtifacts(repo.fullName)
     raws = r.items
-    if (r.truncated) limits.push({ area: 'artifacts', message: 'More artifacts exist than GitManager reads in one scan (5000). Delete some and scan again.' })
+    if (r.truncated) limits.push({ area: 'artifacts', message: 'More artifacts exist than GitManager reads in one scan (10,000). Delete some and scan again.' })
   } catch (e) {
     if (fatal(e)) throw e
     inv.error = e instanceof GhError && e.kind === 'permission' ? `No permission to list artifacts (${e.message}). Actions may be disabled or the sign-in lacks access.`

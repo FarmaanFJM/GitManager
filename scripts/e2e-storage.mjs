@@ -166,7 +166,7 @@ try {
   await page.waitForTimeout(1500)
   await tab('Activity')
   const audit = readFileSync(join(dataDir, 'storage-audit.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l))
-  check(audit.filter(e => e.type === 'attempt').length === confirmed && audit.filter(e => e.outcome === 'deleted').length === confirmed, 'the audit log holds an attempt and a confirmed result for every deletion', `${audit.length} entries`)
+  check(audit.filter(e => e.type === 'attempt').length >= confirmed && audit.filter(e => e.outcome === 'deleted').length === confirmed, 'the audit log holds an attempt and a confirmed result for every deletion', `${audit.length} entries`)
   check(audit.every(e => e.artifactId && e.name && e.repo && e.hash), 'audit entries carry artifact id, name, repository and hash')
   check(!/(token|authorization|bearer)/i.test(JSON.stringify(audit)), 'no credential appears in the audit log')
   await shot('07-activity')

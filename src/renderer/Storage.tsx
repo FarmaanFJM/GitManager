@@ -52,7 +52,8 @@ export function StorageView() {
   const t = st.snapshot ? snapshotTotals(st.snapshot) : null
   const scan = async () => {
     const r = await api.storageScan()
-    if (!r.ok) setBanner({ code: r.error.code, message: r.error.message })
+    // sign-in problems already have their own notice with the fix; everything else is shown as a banner
+    if (!r.ok && !['NO_GH', 'NOT_SIGNED_IN', 'AUTH_ERROR'].includes(r.error.code)) setBanner({ code: r.error.code, message: r.error.message })
     else setBanner(null)
   }
   const openRepo = (name: string) => { setRepoName(name); setTab('repos') }

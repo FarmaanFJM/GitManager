@@ -182,7 +182,8 @@ export class StorageService extends EventEmitter {
       snap.alerts = growth
       this.p.snapshot = snap
       this.p.anchor = snap.scannedAt
-      this.p.quotaMessage = null
+      // a quota message from any repository's responses is surfaced as its own alert
+      this.p.quotaMessage = res.snapshot.repos.map(r => r.error ?? '').find(e => /storage quota|artifact storage|quota (has been )?(hit|exceeded|reached)/i.test(e)) ?? null
       this.p.scanError = res.aborted ? `${res.aborted} (partial results were kept)` : null
       reconcileAudit(this.audit, snap)
       this.persist()

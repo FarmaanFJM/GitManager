@@ -309,7 +309,7 @@ button.gm-barrow:hover { background: var(--s2); }
 .gm-filter-row { flex-wrap: wrap; }
 .gm-more { padding: 8px; display: flex; justify-content: center; }
 .gm-caches { padding-bottom: 12px; }
-.gm-audit .gm-bhead, .gm-audit .gm-arow { grid-template-columns: 150px minmax(120px, 1fr) minmax(140px, 1.4fr) 80px 110px minmax(120px, 1fr); }
+.gm-audit .gm-bhead, .gm-audit .gm-arow { grid-template-columns: 120px minmax(120px, 1fr) minmax(140px, 1.4fr) 80px 90px minmax(120px, 1fr); }
 /* cleanup preview */
 .gm-cleanup { display: flex; flex-direction: column; gap: 10px; max-height: min(62vh, 560px); overflow: auto; padding-right: 4px; }
 .gm-cleanup-sum { margin: 0; font-size: var(--fs); line-height: 1.5; }
