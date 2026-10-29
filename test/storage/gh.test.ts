@@ -78,3 +78,46 @@ describe('GitHub CLI access', () => {
     expect(list.some(p => /Program Files.*GitHub CLI.*gh\.exe$/.test(p))).toBe(true)
   })
 })
+
+describe('what the GitHub boundary refuses', () => {
+  const calls = () => { const c = cli(() => ok(http(204, {}, ''))); return c }
+
+  it('sends DELETE only for a single Actions artifact', async () => {
+    const { gh, calls: sent } = calls()
+    const refused = [
+      '/repos/o/r/releases/1', '/repos/o/r/releases/assets/9', '/repos/o/r/actions/caches/12', '/repos/o/r/actions/caches?key=x',
+      '/repos/o/r/git/refs/heads/main', '/repos/o/r/branches/main', '/user/packages/container/x', '/repos/o/r', '/repos/o/r/actions/artifacts',
+      '/repos/o/r/actions/artifacts/0', '/repos/o/r/actions/artifacts/-1', '/repos/o/r/actions/artifacts/1/zip', '/repos/o/r/actions/artifacts/12?x=1',
+      '/repos/o/r/actions/artifacts/../../releases/1', '/repos/o/r/actions/runs/5', '/repos/o/r/actions/artifacts/%2e%2e/x', '/repos/o/r/actions/artifacts/12345678901234567',
+    ]
+    for (const p of refused) await expect(gh.request('DELETE', p), p).rejects.toBeInstanceOf(GhError)
+    expect(sent).toHaveLength(0)
+    await gh.request('DELETE', '/repos/FarmaanFJM/GitManager/actions/artifacts/12855262989')
+    expect(sent).toHaveLength(1)
+    expect(sent[0].args.slice(0, 4)).toEqual(['api', '-i', '-X', 'DELETE'])
+  })
+
+  it('rejects dot segments and encoded traversal even for reads', async () => {
+    const { gh, calls: sent } = calls()
+    for (const p of ['/repos/o/r/../x', '/repos/o/./r', '/repos//o', '/repos/o/r/%2e%2e/x', '/repos/o/r/a%5cb']) await expect(gh.request('GET', p), p).rejects.toBeInstanceOf(GhError)
+    expect(sent).toHaveLength(0)
+  })
+
+  it('logs method and path only when a request log is asked for, never anything else', async () => {
+    const { mkdtempSync, readFileSync, rmSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dir = mkdtempSync(join(tmpdir(), 'gm-reqlog-'))
+    const file = join(dir, 'req.log')
+    process.env.GITMANAGER_GH_REQUEST_LOG = file
+    process.env.GH_TOKEN = 'ghp_SECRETSECRETSECRET'
+    try {
+      const { gh } = calls()
+      await gh.request('GET', '/user')
+      await gh.request('DELETE', '/repos/o/r/actions/artifacts/5')
+      const text = readFileSync(file, 'utf8')
+      expect(text.trim().split('\n').map(l => l.replace(/^\S+ /, ''))).toEqual(['GET /user', 'DELETE /repos/o/r/actions/artifacts/5'])
+      expect(text).not.toMatch(/ghp_|token|authorization|bearer/i)
+    } finally { delete process.env.GITMANAGER_GH_REQUEST_LOG; delete process.env.GH_TOKEN; rmSync(dir, { recursive: true, force: true }) }
+  })
+})

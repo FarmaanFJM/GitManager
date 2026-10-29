@@ -32,8 +32,8 @@ It is a maintenance tool for build output, not a dashboard of invented numbers: 
 ### What the numbers mean
 
 - **Retained artifacts** is the sum of the sizes of artifacts that have not expired, as of the last scan. Expired artifacts are listed but hold no bytes and are excluded.
-- **Actions caches** are shown separately. They have their own limit per repository, are evicted automatically by GitHub, and are not part of the artifact total. GitManager lists them read-only; it does not delete caches.
-- **Packages** are listed (name, type, visibility, version count). **The GitHub API does not expose package sizes**, so none are shown.
+- **Actions caches** are shown separately. They have their own allowance (normally 10 GB per repository), are evicted automatically by GitHub, and do not count against the pooled artifact and package storage. They are never added to the artifact total. GitManager lists them read-only; it does not delete caches.
+- **Packages** are listed (name, type, visibility, version count). GitHub counts Packages and Actions artifacts against the **same pooled storage allowance**, so the artifact total can understate what counts against it. **The GitHub API does not expose package sizes**, so none are shown and none are estimated.
 - **Billing** shows what GitHub reports for the month: storage accrued in **GB-hours** and runner **minutes**. GB-hours are accumulated over time, not bytes stored now, and are never converted into or added to the retained-bytes figure. **GitHub's API does not report your included allowance**, so GitManager shows no allowance, remaining quota or percentage and does not estimate one. If billing cannot be read it says **Billing data unavailable** and links to GitHub's billing page. Organization-owned repositories are billed to the organization.
 - After a deletion GitHub can take time to recalculate storage usage and billing; github.com may lag behind the real state.
 

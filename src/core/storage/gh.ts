@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { appendFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AuthState } from '../../shared/storage.js'
 import { firstLine, run, type ExecSpec } from '../exec.js'
@@ -65,6 +65,10 @@ export function parseInclude(out: string): GhResponse | null {
 }
 
 const PATH = /^\/[A-Za-z0-9_./?=&%,:+-]*$/
+/** The only request that changes anything: one artifact, by id, in one repository. Releases, assets, caches, packages and branches cannot match. */
+export const DELETE_PATH = /^\/repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/actions\/artifacts\/[1-9]\d{0,15}$/
+/** Dot segments, doubled or encoded slashes and encoded dots could redirect a request; none is ever needed. */
+const SUSPICIOUS = /(^|\/)\.{1,2}(\/|$|\?)|\/\/|%2e|%5c/i
 
 export function ghCandidates(env: NodeJS.ProcessEnv = process.env, platform = process.platform): string[] {
   const list: string[] = []
@@ -101,7 +105,11 @@ export class GhCli implements GhApi {
   }
 
   async request(method: GhMethod, path: string, opts: GhRequestOptions = {}): Promise<GhResponse> {
-    if (!PATH.test(path)) throw new GhError('request', 'Invalid GitHub API path.')
+    if (!PATH.test(path) || SUSPICIOUS.test(path)) throw new GhError('request', 'Invalid GitHub API path.')
+    if (method === 'DELETE' && !DELETE_PATH.test(path)) throw new GhError('request', 'Refused: GitManager only deletes single Actions artifacts.')
+    // Optional, for verification: method and path only, never headers, bodies or credentials.
+    const log = process.env.GITMANAGER_GH_REQUEST_LOG
+    if (log) { try { appendFileSync(log, `${new Date().toISOString()} ${method} ${path}\n`) } catch { /* logging must never break a request */ } }
     const args = ['api', '-i', '-X', method, path, '-H', 'X-GitHub-Api-Version: 2022-11-28', '-H', `Accept: ${opts.raw ? 'application/vnd.github.raw+json' : 'application/vnd.github+json'}`]
     const r = await this.exec(args, this.opts.timeoutMs ?? 60_000)
     if (r.timedOut) throw new GhError('network', 'GitHub did not answer in time.')

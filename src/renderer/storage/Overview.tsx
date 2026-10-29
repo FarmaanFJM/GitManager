@@ -137,13 +137,13 @@ export function Overview({ st, onOpenRepo }: { st: StorageState; onOpenRepo: (re
           <dt>Actions caches</dt>
           <dd>
             {t.cacheKnown ? <><strong>{formatBytes(t.cacheBytes)}</strong> in {plural(caches.length, 'repository', 'repositories')}. </> : 'Not read. '}
-            Caches have their own limit per repository and are evicted automatically; they are separate from the artifact total and from the packages allowance.
+            Caches have their own allowance (normally 10 GB per repository) and are evicted automatically; they are not part of the artifact total and are not counted against the pooled artifact and package storage.
             {caches.slice(0, 3).map(r => <span key={r.repo} className="faint"> {r.repo} {formatBytes(r.cacheBytes ?? 0)}.</span>)}
           </dd>
           <dt>Packages</dt>
           <dd>
             {snap.packages.available
-              ? <>{plural(snap.packages.packages.length, 'package')}{snap.packages.packages.length ? <> ({snap.packages.packages.slice(0, 4).map(p => `${p.name} · ${p.type}`).join(', ')}{snap.packages.packages.length > 4 ? ', …' : ''})</> : null}. Sizes are not exposed by the GitHub API.</>
+              ? <>{plural(snap.packages.packages.length, 'package')}{snap.packages.packages.length ? <> ({snap.packages.packages.slice(0, 4).map(p => `${p.name} · ${p.type}`).join(', ')}{snap.packages.packages.length > 4 ? ', …' : ''})</> : null}. GitHub counts Packages and Actions artifacts against the same pooled storage allowance, but its API does not expose package sizes, so package storage is not in the figures above.</>
               : <>Unavailable. {snap.packages.message}</>}
           </dd>
           <dt>Billing this month</dt>

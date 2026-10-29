@@ -108,6 +108,7 @@ node scripts/e2e-windows.mjs release/GitManager-<version>-x64.exe   # Windows: i
 ## Documentation
 
 - [Storage](docs/STORAGE.md): artifact inventory, classification rules, safe deletion, Auto Cleanup, and what the GitHub API cannot tell.
+- [Live verification](docs/LIVE_VERIFICATION.md): qualifying Storage against real GitHub and Windows, with an independent reconciliation script.
 - [Architecture](docs/ARCHITECTURE.md): modules, process model, security, Windows and WSL execution.
 - [Summa-UI adoption](docs/SUMMA_UI_ADOPTION.md): pinned release, component reuse, deviations, check results, feedback filed.
 - [Acceptance results](docs/ACCEPTANCE.md): what was verified, how, and what was not.

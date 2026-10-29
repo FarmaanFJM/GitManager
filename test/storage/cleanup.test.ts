@@ -275,3 +275,32 @@ describe('audit log', () => {
     appendFileSync(file, '')
   })
 })
+
+describe('adversarial names', () => {
+  const evil = ['a; rm -rf /', '$(calc.exe)', '`whoami`', 'x" & del /q * & "', "it's", '../../releases/1', 'name\nwith\nnewlines', '%2e%2e%2f', '*', 'ünï©ode 😀', '{{ secrets.TOKEN }}', '--output=x']
+
+  it('artifact names never reach a command line or a request path: only validated ids and repository names do', async () => {
+    const { f, gh, scan, run, candidates } = setup(f => {
+      f.repos[0].artifacts = []; f.repos[0].runs = []
+      evil.forEach((name, i) => { for (const [j, d] of [1, 2, 20, 30].entries()) { f.repos[0].runs.push({ id: 5000 + i * 10 + j }); f.repos[0].artifacts.push({ id: 6000 + i * 10 + j, name: `${name}-windows-x64`, size: 1024, created: new Date(NOW - d * 86_400_000).toISOString(), run: 5000 + i * 10 + j }) } })
+    })
+    void gh
+    const snap = await scan()
+    const refs = candidates(snap)
+    expect(refs.length).toBeGreaterThan(0)
+    const r = await run(snap, refs.filter(x => x.repo === 'me/app'))
+    expect(r.items.every(i => i.outcome === 'deleted')).toBe(true)
+    for (const c of f.calls) expect(c.path, c.path).toMatch(/^\/[A-Za-z0-9_./?=&%,:+-]*$/)
+    for (const c of f.calls.filter(c => c.method === 'DELETE')) expect(c.path).toMatch(/^\/repos\/me\/app\/actions\/artifacts\/\d+$/)
+    expect(f.calls.some(c => /rm|calc|whoami|secrets/.test(c.path))).toBe(false)
+  })
+
+  it('a renderer-supplied repository name that is not owner/name never produces a request', async () => {
+    const { buildPlan } = await import('../../src/core/storage/cleanup.js')
+    const { f, scan } = setup()
+    const snap = await scan()
+    const calls = f.calls.length
+    for (const repo of ['*', '../x', 'a/b/c', 'me/app; rm -rf /', 'me/app\n', '', 'me/..', '$(x)/y']) expect(buildPlan(snap, [{ repo, id: 1 }], { allowReview: true }).items).toHaveLength(0)
+    expect(f.calls.length).toBe(calls)
+  })
+})

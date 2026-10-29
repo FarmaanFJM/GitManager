@@ -203,7 +203,7 @@ export function limitationsFor(auth: Extract<AuthState, { state: 'ok' }>, repos:
   if (lowConf.length) out.push(`${lowConf.length} ${lowConf.length === 1 ? 'repository' : 'repositories'} had incomplete context (pull requests, releases, documentation or runs); their delete candidates were moved to Review.`)
   if (repos.some(r => r.limits.some(l => l.area === 'artifacts' && !r.error))) out.push('At least one repository has more artifacts than a single scan reads.')
   if (!packages.available) out.push(`Packages: ${packages.message ?? 'unavailable'}`)
-  else out.push('Packages are listed without sizes: the GitHub API does not expose package storage in bytes.')
+  else out.push('Packages are listed without sizes: the GitHub API does not expose package storage in bytes. Packages and Actions artifacts share one pooled storage allowance on GitHub, so the artifact total alone can understate what counts against it.')
   if (!billing.available) out.push('Billing data unavailable. ' + (billing.message ?? ''))
   out.push('Artifact types and purposes are inferred from names and workflow metadata, not from file contents.')
   out.push('Organization-owned repositories are billed to the organization, not to your personal allowance.')

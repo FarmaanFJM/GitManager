@@ -1,5 +1,6 @@
 import type { BillingInfo, BillingItem, CacheEntry, PackageEntry, RunInfo } from '../../shared/storage.js'
 import type { RawArtifact } from './classify.js'
+import { validRepoName } from './config.js'
 import { errorFor, GhError, type GhApi, type GhMethod, type GhResponse } from './gh.js'
 
 export type RepoSummary = { fullName: string; private: boolean; archived: boolean; canPush: boolean; canAdmin: boolean; defaultBranch: string; owner: string; ownerType: string; pushedAt: string | null }
@@ -19,6 +20,7 @@ export type GitHubOptions = {
 }
 
 const encodeRepo = (full: string) => {
+  if (!validRepoName(full)) throw new GhError('request', 'Invalid repository name.')
   const [o, r] = full.split('/')
   return `${encodeURIComponent(o)}/${encodeURIComponent(r)}`
 }
