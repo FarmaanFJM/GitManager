@@ -8,7 +8,7 @@ export type PlatformTag = 'windows' | 'linux' | 'macos' | 'android' | 'ios' | 'u
 export type ReasonCode =
   | 'expired' | 'repo-protected' | 'pinned' | 'evidence' | 'doc-cited' | 'release' | 'open-pr' | 'run-active'
   | 'newest-successful' | 'last-installer' | 'superseded-build' | 'obsolete-report' | 'superseded-failed'
-  | 'failed-run' | 'metadata-missing' | 'context-incomplete' | 'category-unreviewed' | 'unclassified' | 'category-disabled' | 'no-newer-build' | 'tag-build' | 'grace-period'
+  | 'failed-run' | 'metadata-missing' | 'context-incomplete' | 'category-unreviewed' | 'unclassified' | 'category-disabled' | 'no-newer-build' | 'tag-build' | 'grace-period' | 'failed-superseded'
 
 export type RunInfo = {
   id: number

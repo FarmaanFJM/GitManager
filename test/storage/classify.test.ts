@@ -90,8 +90,8 @@ describe('classification', () => {
     const failed = art('app-windows-x64', 40, {}, run({ conclusion: 'failure' }))
     const cancelled = art('app-windows-x64', 41, {}, run({ conclusion: 'cancelled' }))
     const c = classOf([...good, failed, cancelled])
-    expect(c[failed.a.id]).toMatchObject({ class: 'review', reasonCode: 'failed-run' })
-    expect(c[cancelled.a.id]).toMatchObject({ class: 'review', reasonCode: 'failed-run' })
+    expect(c[failed.a.id]).toMatchObject({ class: 'review', reasonCode: 'failed-superseded' })
+    expect(c[cancelled.a.id]).toMatchObject({ class: 'review', reasonCode: 'failed-superseded' })
   })
 
   it('offers superseded failed output only when the policy explicitly allows it, after its own grace period', () => {

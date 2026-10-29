@@ -34,11 +34,15 @@ export function CleanupDialog({ st, open, onClose, repos }: { st: StorageState; 
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [showReview, setShowReview] = useState(false)
+  const [showFailed, setShowFailed] = useState(false)
   const [showExcluded, setShowExcluded] = useState(false)
 
   const scope = useMemo(() => (snap?.repos ?? []).filter(r => !repos || repos.includes(r.repo)), [snap, repos])
   const candidates = useMemo(() => scope.filter(r => r.canDelete && !r.error).flatMap(r => r.artifacts.filter(a => a.class === 'delete-candidate')), [scope])
-  const review = useMemo(() => scope.filter(r => r.canDelete && !r.error).flatMap(r => r.artifacts.filter(a => a.class === 'review')), [scope])
+  const reviewAll = useMemo(() => scope.filter(r => r.canDelete && !r.error).flatMap(r => r.artifacts.filter(a => a.class === 'review')), [scope])
+  // Failed or cancelled output that newer successful builds already supersede: the one Review group with a deliberate bulk choice.
+  const failedSup = useMemo(() => reviewAll.filter(a => a.reasonCode === 'failed-superseded'), [reviewAll])
+  const review = useMemo(() => reviewAll.filter(a => a.reasonCode !== 'failed-superseded'), [reviewAll])
   const excluded = useMemo(() => {
     const by: Record<ArtifactClass, Artifact[]> = { protected: [], keep: [], review: [], 'delete-candidate': [], expired: [] }
     for (const r of scope) for (const a of r.artifacts) if (a.class !== 'delete-candidate' && a.class !== 'review' && a.class !== 'expired' && a.reasonCode !== 'grace-period') by[a.class].push(a)
@@ -49,17 +53,19 @@ export function CleanupDialog({ st, open, onClose, repos }: { st: StorageState; 
 
   useEffect(() => {
     if (!open) return
-    setPicked(new Set(candidates.map(key))); setPhase('review'); setResult(null); setError(null); setExpanded(new Set()); setShowReview(false); setShowExcluded(false)
+    setPicked(new Set(candidates.map(key))); setPhase('review'); setResult(null); setError(null); setExpanded(new Set()); setShowReview(false); setShowFailed(false); setShowExcluded(false)
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const [progress, setProgress] = useState<OperationProgress | null>(null)
   useEffect(() => api.on('storage-status', p => setProgress(p.operation)), [])
 
-  const byKey = useMemo(() => new Map([...candidates, ...review].map(a => [key(a), a])), [candidates, review])
+  const byKey = useMemo(() => new Map([...candidates, ...failedSup, ...review].map(a => [key(a), a])), [candidates, failedSup, review])
   const selected = [...picked].map(k => byKey.get(k)).filter((a): a is Artifact => !!a)
   const bytes = selected.reduce((n, a) => n + a.sizeBytes, 0)
   const selRepos = new Set(selected.map(a => a.repo)).size
   const reviewSelected = selected.filter(a => a.class === 'review').length
+  const allFailed = failedSup.length > 0 && failedSup.every(a => picked.has(key(a)))
+  const toggleFailed = () => setPicked(s => { const n = new Set(s); for (const a of failedSup) { if (allFailed) n.delete(key(a)); else n.add(key(a)) } return n })
   const allCandidates = candidates.length > 0 && candidates.every(a => picked.has(key(a)))
   const someCandidates = candidates.some(a => picked.has(key(a)))
 
@@ -74,7 +80,7 @@ export function CleanupDialog({ st, open, onClose, repos }: { st: StorageState; 
     setResult(r.value); setPhase('result')
   }
 
-  const renderGroup = (g: Group, tone: 'candidate' | 'review') => {
+  const renderGroup = (g: Group, tone: 'candidate' | 'review' | 'failed') => {
     const open = expanded.has(g.repo + tone)
     const items = open ? g.items : g.items.slice(0, 8)
     const all = g.items.every(a => picked.has(key(a)))
@@ -132,6 +138,19 @@ export function CleanupDialog({ st, open, onClose, repos }: { st: StorageState; 
               <div className="gm-cleanup-bulk"><Checkbox checked={allCandidates ? true : someCandidates ? 'mixed' : false} onChange={toggleAllCandidates} label="Select all verified delete candidates" /><span>All verified delete candidates <span className="faint num">({candidates.length}, {formatBytes(candidates.reduce((n, a) => n + a.sizeBytes, 0))})</span></span></div>
               {groupBy(candidates).map(g => renderGroup(g, 'candidate'))}
             </>
+          )}
+
+          {failedSup.length > 0 && (
+            <section className="gm-cleanup-extra" aria-label="Superseded failed output">
+              <button type="button" className="gm-disclose" aria-expanded={showFailed} onClick={() => setShowFailed(v => !v)}><Icon name={showFailed ? 'chevron-down' : 'chevron-right'} size={14} />Failed or cancelled output, superseded: {plural(failedSup.length, 'artifact')} ({formatBytes(failedSup.reduce((n, a) => n + a.sizeBytes, 0))}), none selected</button>
+              <p className="gm-hint">Complete builds from runs that later failed or were cancelled, now superseded by newer successful builds of the same output on the same branch. They may still document a failure you are investigating, so they are never selected for you and never deleted automatically. Release builds, open pull request branches, evidence, pinned artifacts and the newest successful builds are not in this list.</p>
+              {showFailed && (
+                <>
+                  <div className="gm-cleanup-bulk"><Checkbox checked={allFailed} onChange={toggleFailed} label="Select all superseded failed output" /><span>Select all {failedSup.length} superseded failed or cancelled builds <span className="faint num">({formatBytes(failedSup.reduce((n, a) => n + a.sizeBytes, 0))})</span></span></div>
+                  {groupBy(failedSup).map(g => renderGroup(g, 'failed'))}
+                </>
+              )}
+            </section>
           )}
 
           {review.length > 0 && (

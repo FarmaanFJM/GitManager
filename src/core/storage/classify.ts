@@ -182,12 +182,19 @@ export function classifyRepo(raws: readonly RawArtifact[], ctx: ClassifyContext)
     if (!i.ok) {
       const outcome = run!.conclusion ?? 'unfinished'
       const grace = policy.failedGraceDays
-      if (policy.failedOutput === 'delete-superseded' && n >= N && ageDays >= grace) {
+      if (policy.failedOutput === 'delete-superseded' && n >= N && ageDays >= grace && !pr) {
         return { ...V('delete-candidate', 'superseded-failed', `Output of a ${outcome} run; your failure-output policy allows deleting it once ${plural(N, 'newer successful build')} of ${i.family} exist on ${where} (${n} do) and ${grace} d have passed.`), n }
+      }
+      // Failed output superseded by newer successful builds is the one case worth a deliberate manual review: it is redundant by
+      // the same evidence as a routine build, but it was a failure, so only the user decides. Output on an open pull request's
+      // branch stays an ordinary failed-run Review: the reviewers may be looking at that failure.
+      const onOpenPr = !!pr
+      if (policy.failedOutput === 'review' && n >= N && !onOpenPr) {
+        return { ...V('review', 'failed-superseded', `Output of a ${outcome} run, superseded by ${plural(n, 'newer successful build')} of ${i.family} (${target}) on ${where}. Redundant, but a failure: only you decide whether it is still needed for debugging.`), n }
       }
       return V('review', 'failed-run', policy.failedOutput === 'delete-superseded'
         ? `Output of a ${outcome} run, kept until ${plural(N, 'newer successful build')} exist on ${where}${grace ? ` and ${grace} d have passed` : ''}.`
-        : `Output of a ${outcome} run. It may be useful for debugging, so it is only deleted by you; allow it in the policy to offer superseded failed output.`)
+        : `Output of a ${outcome} run${onOpenPr ? ` on the branch of open pull request #${pr!.number}` : ''}. It may be useful for debugging, so it is only deleted by you; allow it in the policy to offer superseded failed output.`)
     }
     if (n < N) return V('review', 'no-newer-build', `Only ${n} newer successful ${n === 1 ? 'build' : 'builds'} of ${i.family} on ${where}; ${N} are needed.`)
     const grace = report ? policy.reportGraceDays : policy.graceDays

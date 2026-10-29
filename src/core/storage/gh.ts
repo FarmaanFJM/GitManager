@@ -12,6 +12,8 @@ export interface GhApi {
   request(method: GhMethod, path: string, opts?: GhRequestOptions): Promise<GhResponse>
   /** Authentication as the CLI sees it. Never returns or logs a token. */
   authState(): Promise<AuthState>
+  /** Optional: writes a phase marker into the request log, when one is configured. */
+  mark?(label: string): void
 }
 
 export type GhErrorKind = 'auth' | 'permission' | 'not-found' | 'gone' | 'rate-limit' | 'quota' | 'request' | 'server' | 'network' | 'no-gh'
@@ -104,12 +106,19 @@ export class GhCli implements GhApi {
     throw new GhError('no-gh', 'The GitHub CLI (gh) was not found. Install it from https://cli.github.com and run "gh auth login".')
   }
 
+  /** Request log lines carry a method and a path, or a phase marker, and nothing else. */
+  private log(line: string) {
+    const file = process.env.GITMANAGER_GH_REQUEST_LOG
+    if (file) { try { appendFileSync(file, `${new Date().toISOString()} ${line}\n`) } catch { /* logging must never break a request */ } }
+  }
+
+  mark(label: string) { this.log(`MARK ${label.replace(/[\r\n]/g, ' ')}`) }
+
   async request(method: GhMethod, path: string, opts: GhRequestOptions = {}): Promise<GhResponse> {
     if (!PATH.test(path) || SUSPICIOUS.test(path)) throw new GhError('request', 'Invalid GitHub API path.')
     if (method === 'DELETE' && !DELETE_PATH.test(path)) throw new GhError('request', 'Refused: GitManager only deletes single Actions artifacts.')
     // Optional, for verification: method and path only, never headers, bodies or credentials.
-    const log = process.env.GITMANAGER_GH_REQUEST_LOG
-    if (log) { try { appendFileSync(log, `${new Date().toISOString()} ${method} ${path}\n`) } catch { /* logging must never break a request */ } }
+    this.log(`${method} ${path}`)
     const args = ['api', '-i', '-X', method, path, '-H', 'X-GitHub-Api-Version: 2022-11-28', '-H', `Accept: ${opts.raw ? 'application/vnd.github.raw+json' : 'application/vnd.github+json'}`]
     const r = await this.exec(args, this.opts.timeoutMs ?? 60_000)
     if (r.timedOut) throw new GhError('network', 'GitHub did not answer in time.')

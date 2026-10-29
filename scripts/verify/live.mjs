@@ -6,7 +6,8 @@
 //   node scripts/verify/live.mjs reconcile [--state <storage-state.json>] [--repos a/b,c/d] [--sample 12]
 //   node scripts/verify/live.mjs snapshot --repos a/b,c/d --out before.json        (artifact ids per repository, read-only)
 //   node scripts/verify/live.mjs diff before.json after.json
-//   node scripts/verify/live.mjs requests <request.log> --expect none | --expect canary --repo o/r --id 123
+//   node scripts/verify/live.mjs requests <request.log> [--audit <storage-audit.jsonl>] [--expect none | --expect canary --repo o/r --id 123]
+//   node scripts/verify/live.mjs deletions --audit <storage-audit.jsonl> [--state <storage-state.json>]   (after cleanups: deleted ids are gone, nothing protected was deleted)
 //   node scripts/verify/live.mjs audit [--log <storage-audit.jsonl>]
 //   node scripts/verify/live.mjs explain --repo o/r [--grace-days 0] [--plus-days 0] [--save dir | --from dir]   (why artifacts are or are not candidates; what-if)
 //   node scripts/verify/live.mjs canary-create --repo o/r             (creates a disposable branch, workflow and artifacts)
@@ -265,24 +266,79 @@ function diffCmd() {
   process.exit(fails ? 1 : 0)
 }
 
-function requestsCmd() {
+async function requestsCmd() {
+  const { verifyRequests, parseRequestLog } = await dist('core/storage/requestlog.js')
   const file = positional()[0]
-  const lines = readFileSync(file, 'utf8').split('\n').filter(Boolean).map(l => { const [at, method, path] = l.split(' '); return { at, method, path } })
-  const by = {}
-  for (const l of lines) by[l.method] = (by[l.method] ?? 0) + 1
-  console.log(`requests: ${JSON.stringify(by)} (${lines.length} total)`)
-  const muts = lines.filter(l => l.method !== 'GET')
-  if (flag('expect') === 'none') ok(muts.length === 0, 'zero mutating requests (no DELETE, POST, PUT, PATCH)', muts.map(m => `${m.method} ${m.path}`).join(', '))
-  if (flag('expect') === 'canary') {
+  const text = readFileSync(file, 'utf8')
+  const { phases } = parseRequestLog(text)
+  console.log(`phases: ${phases.map(p => `${p.kind}(${p.lines.length})`).join(', ') || '(no phase markers: an older log)'}`)
+  const audit = flag('audit') ? readFileSync(flag('audit'), 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l)) : undefined
+  const v = verifyRequests(text, audit)
+  console.log(`requests: ${JSON.stringify(v.counts)}; DELETE ${v.deletes} (${v.deletesInAuthorizedPhases} inside authorized cleanups)`)
+  const mode = flag('expect')
+  if (mode === 'none') {
+    ok(v.deletes === 0 && !Object.keys(v.counts).some(m => m !== 'GET'), 'zero mutating requests: a read-only scan or dry run issues only GET')
+  } else if (mode === 'canary') {
     const repo = flag('repo'), id = flag('id')
     const want = `/repos/${repo}/actions/artifacts/${id}`
-    const del = muts.filter(m => m.method === 'DELETE')
-    ok(muts.length === 1 && del.length === 1 && del[0].path === want, `exactly one mutating request: DELETE ${want}`, muts.map(m => `${m.method} ${m.path}`).join(', '))
+    const { lines } = parseRequestLog(text)
+    const muts = lines.filter(l => l.method !== 'GET')
+    ok(muts.length === 1 && muts[0].method === 'DELETE' && muts[0].path === want, `exactly one mutating request: DELETE ${want}`, muts.map(m => `${m.method} ${m.path}`).join(', '))
     const i = lines.findIndex(l => l.method === 'DELETE')
     ok(i > 0 && lines.slice(0, i).some(l => l.method === 'GET' && l.path === want), 'the artifact was re-read (GET) before the DELETE')
     ok(lines.slice(i + 1).some(l => l.path.startsWith(`/repos/${repo}/actions/artifacts?`)), 'the repository artifact list was read again after the DELETE')
-    ok(!lines.some(l => /\/releases|\/actions\/caches|\/packages|\/branches|\/git\/refs/.test(l.path) && l.method !== 'GET'), 'no release, cache, package or branch endpoint was mutated')
   }
+  ok(v.ok, 'every mutation is a single-artifact DELETE inside an authorized cleanup' + (audit ? ' and matches one audit attempt each' : ''), v.problems.join('; '))
+  console.log('\nA log that spans a scan AND an authorized cleanup legitimately contains DELETEs: they must all sit inside "cleanup dryRun=false" phases, one per audit attempt. A scan-only or dry-run log must contain none (use --expect none on a log taken before the cleanup).')
+  process.exit(fails ? 1 : 0)
+}
+
+async function deletionsCmd() {
+  const { classifyRepo } = await dist('core/storage/classify.js')
+  const { DEFAULT_POLICY } = await dist('core/storage/config.js')
+  const { AuditLog } = await dist('core/storage/audit.js')
+  const log = flag('audit', join(userData(), 'storage-audit.jsonl'))
+  const a = new AuditLog(log).read()
+  ok(a.intact, `audit hash chain valid over ${a.entries.length} entries`)
+  const deleted = new Map()
+  for (const e of a.entries) if (e.type === 'result' && e.outcome === 'deleted') deleted.set(`${e.repo}#${e.artifactId}`, e)
+  const attempts = a.entries.filter(e => e.type === 'attempt')
+  console.log(`audit: ${deleted.size} artifacts confirmed deleted, ${attempts.length} attempts`)
+  // 1. every deleted id is gone from GitHub
+  let present = 0
+  for (const e of deleted.values()) {
+    let status = 'gone'
+    try { api(`/repos/${e.repo}/actions/artifacts/${e.artifactId}`); status = 'STILL LISTED' } catch (err) { if (!/404|Not Found|410/.test(String(err.stderr ?? err.message))) status = `unknown (${String(err.stderr ?? err.message).split('\n')[0]})` }
+    if (status !== 'gone') { present++; console.log(`  ${e.repo} #${e.artifactId} ${e.name}: ${status}`) }
+  }
+  ok(present === 0, `all ${deleted.size} deleted ids are absent from GitHub`)
+  // 2. none of them was something that must be kept: rebuild the pre-deletion inventory (current artifacts plus the deleted ones) and classify it
+  const byRepo = {}
+  for (const e of deleted.values()) (byRepo[e.repo] ??= []).push(e)
+  const cfgFile = join(userData(), 'gitmanager.json'); const cfg = existsSync(cfgFile) ? load(cfgFile).storage ?? {} : {}
+  for (const [repo, ents] of Object.entries(byRepo)) {
+    const info = api(`/repos/${repo}`)
+    const cur = pages(`/repos/${repo}/actions/artifacts`, b => b.artifacts).items
+    const runs = new Map(pages(`/repos/${repo}/actions/runs`, b => b.workflow_runs, 5).items.map(r => [r.id, r]))
+    for (const x of [...cur.map(c => c.workflow_run?.id), ...ents.map(e => e.runId)].filter(Boolean)) if (!runs.has(x)) { try { runs.set(x, api(`/repos/${repo}/actions/runs/${x}`)) } catch { /* unknown run */ } }
+    const raws = cur.map(c => ({ id: c.id, repo, name: c.name, sizeBytes: c.size_in_bytes, createdAt: c.created_at, expiresAt: c.expires_at, expired: c.expired, runId: c.workflow_run?.id ?? null, headBranch: c.workflow_run?.head_branch ?? null, headSha: c.workflow_run?.head_sha ?? null }))
+    // the deleted artifacts, reconstructed from the audit and their (still existing) runs; creation time is approximated by the run's last update
+    for (const e of ents) { const r = runs.get(e.runId); raws.push({ id: e.artifactId, repo, name: e.name, sizeBytes: e.sizeBytes, createdAt: r?.updated_at ?? null, expiresAt: null, expired: false, runId: e.runId, headBranch: r?.head_branch ?? null, headSha: r?.head_sha ?? null }) }
+    const runMap = new Map([...runs.values()].map(r => [r.id, { id: r.id, name: r.name, path: r.path, status: r.status, conclusion: r.conclusion, event: r.event, runNumber: r.run_number, headBranch: r.head_branch, headSha: r.head_sha, htmlUrl: r.html_url, pullNumbers: (r.pull_requests ?? []).map(p => p.number) }]))
+    const pulls = pages(`/repos/${repo}/pulls?state=open`, b => b, 5).items.map(p => ({ number: p.number, headRef: p.head.ref, headSha: p.head.sha }))
+    const rel = api(`/repos/${repo}/releases?per_page=30`); const tags = pages(`/repos/${repo}/tags`, b => b, 3).items.map(t => t.name)
+    const active = [...rel.filter(r => r.draft), ...rel.filter(r => !r.draft && !r.prerelease).slice(0, 1), ...rel.filter(r => !r.draft && r.prerelease).slice(0, 1)].map(r => ({ tag: r.tag_name, sha: null, draft: r.draft, prerelease: r.prerelease }))
+    const pol = { ...DEFAULT_POLICY, ...(cfg.defaultPolicy ?? {}), ...(cfg.policies?.[repo.toLowerCase()] ?? {}) }
+    const out = classifyRepo(raws, { now: Date.now(), policy: pol, protectedRepo: (cfg.protectedRepos ?? []).includes(repo.toLowerCase()), pinned: new Set((cfg.pins ?? []).filter(p => p.repo === repo.toLowerCase()).map(p => p.artifactId)), runs: runMap, pulls, releases: active, releaseTags: new Set([...rel.map(r => r.tag_name), ...tags]), defaultBranch: info.default_branch, docs: '', context: { runs: true, pulls: true, releases: true, docs: true } })
+    const gone = out.filter(o => ents.some(e => e.artifactId === o.id))
+    const bad = gone.filter(o => o.class === 'protected' || o.class === 'keep')
+    const kinds = {}; for (const o of gone) kinds[`${o.class}/${o.reasonCode}`] = (kinds[`${o.class}/${o.reasonCode}`] ?? 0) + 1
+    console.log(`${repo}: ${ents.length} deleted; classified now as ${JSON.stringify(kinds)}`)
+    ok(bad.length === 0, `${repo}: no deleted artifact was Protected or Keep when its siblings are rebuilt`, bad.map(o => `#${o.id} ${o.name} ${o.class}/${o.reasonCode}: ${o.reason}`).join('; '))
+    const keptNow = out.filter(o => !ents.some(e => e.artifactId === o.id) && (o.class === 'protected' || o.class === 'keep'))
+    console.log(`  still present and Protected/Keep: ${keptNow.length}`)
+  }
+  console.log('\n(Docs are not re-read here, so a documentation reference is not re-checked; the creation time of a deleted artifact is approximated by its run\'s last update.)')
   process.exit(fails ? 1 : 0)
 }
 
@@ -409,6 +465,6 @@ function canaryCleanup() {
   console.log(`removed temporary branch ${branch}. Remaining canary artifacts expire after 1 day (or delete them in GitManager).`)
 }
 
-const table = { explain, env: envCmd, reconcile, snapshot: snapshotCmd, diff: diffCmd, requests: requestsCmd, audit: auditCmd, 'canary-create': canaryCreate, 'canary-cleanup': canaryCleanup }
+const table = { explain, deletions: deletionsCmd, env: envCmd, reconcile, snapshot: snapshotCmd, diff: diffCmd, requests: requestsCmd, audit: auditCmd, 'canary-create': canaryCreate, 'canary-cleanup': canaryCleanup }
 if (!table[cmd]) { console.error(readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 16).join('\n')); process.exit(2) }
 await table[cmd]()

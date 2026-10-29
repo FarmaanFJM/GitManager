@@ -164,6 +164,7 @@ export class StorageService extends EventEmitter {
 
   private async runScan(auth: Extract<AuthState, { state: 'ok' }>, only?: string[]) {
     const old = this.p.snapshot
+    this.d.gh.mark?.(`BEGIN scan${only ? ' partial' : ''}`)
     try {
       const res = await scanAll(this.github, auth, {
         config: this.cfg(), now: this.now, cache: this.cache, signal: this.signal, only: only ? new Set(only.map(repoKey)) : undefined,
@@ -192,6 +193,7 @@ export class StorageService extends EventEmitter {
       this.p.scanError = (e as Error).message
       this.persist()
     } finally {
+      this.d.gh.mark?.('END scan')
       this.scanP = { ...this.scanP, running: false, phase: 'idle', current: null }
       this.release()
       this.status()
@@ -226,6 +228,7 @@ export class StorageService extends EventEmitter {
     if (!o.dryRun && auth.canWrite === false) return fail('READ_ONLY', 'This GitHub CLI sign-in cannot delete artifacts (no "repo" scope). GitManager stays read-only. To allow deletion run: gh auth refresh -s repo')
     this.busy = 'operation'
     this.signal = { cancelled: false }
+    this.d.gh.mark?.(`BEGIN cleanup dryRun=${o.dryRun} manual`)
     try {
       const result = await executePlan(this.p.snapshot, plan.items, {
         gh: this.github, audit: this.audit, config: () => this.cfg(), cache: this.cache, paceMs: this.d.paceMs, sleep: this.d.sleep, now: this.now,
@@ -237,6 +240,7 @@ export class StorageService extends EventEmitter {
     } catch (e) {
       return fail('FAILED', (e as Error).message)
     } finally {
+      this.d.gh.mark?.('END cleanup')
       this.opP = { ...IDLE_OP }
       this.release()
       this.status()
@@ -378,6 +382,7 @@ export class StorageService extends EventEmitter {
     if (split.auto.length && auth?.state === 'ok' && auth.canWrite !== false) {
       this.busy = 'operation'
       this.signal = { cancelled: false }
+      this.d.gh.mark?.('BEGIN cleanup dryRun=false scheduled')
       try {
         const res = await executePlan(snap, split.auto, { gh: this.github, audit: this.audit, config: () => this.cfg(), cache: this.cache, paceMs: this.d.paceMs, sleep: this.d.sleep, now: this.now, onProgress: pr => { this.opP = pr; this.status() } }, { trigger: 'scheduled', dryRun: false, allowReview: false, signal: this.signal })
         this.p.lastOperation = res
@@ -385,6 +390,7 @@ export class StorageService extends EventEmitter {
         const bad = res.items.filter(i => ['denied', 'rate-limited', 'failed', 'not-attempted'].includes(i.outcome))
         if (bad.length) problems.push(`${bad.length} of ${res.items.length} could not be deleted (${res.stopReason ?? bad[0].message ?? bad[0].outcome})`)
       } catch (e) { problems.push((e as Error).message) } finally {
+        this.d.gh.mark?.('END cleanup')
         this.opP = { ...IDLE_OP }; this.release()
       }
       await this.refreshRepos([...new Set(split.auto.map(i => i.ref.repo))])

@@ -176,7 +176,7 @@ export async function scanAll(gh: GitHub, auth: Extract<AuthState, { state: 'ok'
     o.onProgress?.({ phase: 'extras', current: 'Packages and billing' })
     try { packages = { available: true, message: null, packages: await gh.listPackages() } } catch (e) {
       const err = e as GhError
-      packages = { available: false, message: err.kind === 'permission' || err.kind === 'auth' ? 'The GitHub CLI sign-in cannot read packages. Add the scope with: gh auth refresh -s read:packages' : `Packages could not be read: ${err.message}`, packages: [] }
+      packages = { available: false, message: err.kind === 'permission' || err.kind === 'auth' ? 'The GitHub CLI sign-in cannot read packages: GitHub requires the read:packages scope (classic token). Minimum addition: gh auth refresh -h github.com -s read:packages' : `Packages could not be read: ${err.message}`, packages: [] }
     }
     billing = await gh.billing(auth.login)
   }

@@ -105,6 +105,15 @@ node scripts/verify/live.mjs diff before.json after.json --expect-id <artifact i
 node scripts/verify/live.mjs canary-cleanup --repo FarmaanFJM/GitManager --branch storage-canary-<time> --yes
 ```
 
+## After a cleanup: deletions and requests
+
+```powershell
+node scripts/verify/live.mjs deletions --audit "$env:APPDATA\GitManager\storage-audit.jsonl"
+node scripts/verify/live.mjs requests $env:TEMP\gm-scan.log --audit "$env:APPDATA\GitManager\storage-audit.jsonl"
+```
+
+`deletions` proves every id the audit log confirms deleted is absent from GitHub and that none would have been Protected or Keep. `requests` expects DELETEs only inside authorized cleanup phases, one per audit attempt. Use `--expect none` only on a log from before any cleanup (scan and dry run). A log that contains both a scan and a cleanup is expected to contain the cleanup's DELETEs.
+
 ## 10. Audit log
 
 ```powershell

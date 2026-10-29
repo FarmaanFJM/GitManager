@@ -32,6 +32,9 @@ export class FakeGitHub implements GhApi {
   packages: unknown[] | 'forbidden' = []
 
   authState = async () => this.auth
+  mark(label: string) { this.calls.push({ method: 'MARK', path: label }) }
+  /** The calls as the request log writes them: markers and requests in order. */
+  logText() { return this.calls.map((c, i) => `2026-10-29T12:00:${String(i % 60).padStart(2, '0')}Z ${c.method === 'MARK' ? `MARK ${c.path}` : `${c.method} ${c.path}`}`).join('\n') + '\n' }
 
   repo(full: string) { return this.repos.find(r => r.full.toLowerCase() === full.toLowerCase()) }
   count(method: string, re: RegExp) { return this.calls.filter(c => c.method === method && re.test(c.path)).length }

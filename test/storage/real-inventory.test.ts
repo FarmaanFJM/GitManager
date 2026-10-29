@@ -54,7 +54,7 @@ describe('real GitManager inventory', () => {
 
   it('failed and cancelled output is Review by default and offered only when the policy allows it', () => {
     const c = classify(NOW)
-    expect(installers(c).filter(a => a.reasonCode === 'failed-run')).toHaveLength(10)
+    expect(installers(c).filter(a => a.reasonCode === 'failed-superseded')).toHaveLength(10) // Review, flagged for deliberate manual review
     const allowed = classify(NOW, {}, { failedOutput: 'delete-superseded', failedGraceDays: 0 })
     expect(installers(allowed).filter(a => a.reasonCode === 'superseded-failed')).toHaveLength(10)
     const graced = classify(NOW, {}, { failedOutput: 'delete-superseded', failedGraceDays: 14 })

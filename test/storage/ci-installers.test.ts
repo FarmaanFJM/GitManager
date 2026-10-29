@@ -219,3 +219,68 @@ describe('missing or incomplete metadata', () => {
     expect(c[inst[2].a.id]).toMatchObject({ class: 'review', reasonCode: 'category-disabled' })
   })
 })
+
+describe('superseded failed output (manual review only)', () => {
+  const failedBuild = (d: number, o: Parameters<typeof run>[0] = {}) => art('app-windows-x64', d, { sizeBytes: MB250 }, run({ headBranch: 'main', conclusion: 'failure', ...o }))
+
+  it('changing the grace period alone can never reclaim failed output', () => {
+    const good = onMain('app-windows-x64', [1, 2])
+    const failed = [failedBuild(40), failedBuild(400)]
+    for (const graceDays of [0, 1, 30, 365]) {
+      const c = classes([...good, ...failed], { policy: { ...DEFAULT_POLICY, graceDays, reportGraceDays: graceDays } })
+      for (const f of failed) expect(c[f.a.id].class, `grace ${graceDays}`).toBe('review')
+      expect(totalsOf(Object.values(c)).reclaimableBytes).toBe(0)
+    }
+  })
+
+  it('failed output superseded by two newer successful builds is flagged for deliberate review, never a candidate', () => {
+    const good = onMain('app-windows-x64', [1, 2])
+    const failed = failedBuild(5)
+    const c = classes([...good, failed])
+    expect(c[failed.a.id]).toMatchObject({ class: 'review', reasonCode: 'failed-superseded' })
+    expect(c[failed.a.id].reason).toContain('2 newer successful builds')
+    expect(c[failed.a.id].reason).toContain('only you decide')
+    // not enough successors: an ordinary failed-run review
+    const lone = classes([...onMain('app-windows-x64', [1]), failedBuild(5)])
+    expect(Object.values(lone).find(x => x.reasonCode === 'failed-superseded')).toBeUndefined()
+  })
+
+  it('never reaches the superseded-failed group when it is the evidence it must preserve', () => {
+    const good = onMain('app-windows-x64', [1, 2])
+    const prBranch = [failedBuild(5, { headBranch: 'feature/x', event: 'pull_request', pullNumbers: [7] })]
+    const tagged = failedBuild(6, { headBranch: 'v1.0.0' })
+    const evidence = art('qualification-installer', 7, {}, run({ headBranch: 'main', conclusion: 'failure' }))
+    const audit = art('app-windows-x64', 8, {}, run({ headBranch: 'main', conclusion: 'failure', name: 'Security audit', path: '.github/workflows/audit.yml' }))
+    const pinned = failedBuild(9)
+    const c = classes([...good, ...prBranch, tagged, evidence, audit, pinned], {
+      pulls: [{ number: 7, headRef: 'feature/x', headSha: 'x' }], releases: [{ tag: 'v1.0.0', sha: null, draft: false, prerelease: false }], releaseTags: new Set(['v1.0.0']), pinned: new Set([pinned.a.id]),
+    })
+    expect(c[prBranch[0].a.id]).toMatchObject({ class: 'keep', reasonCode: 'open-pr' }) // newest on its branch: kept outright
+    expect(c[tagged.a.id]).toMatchObject({ class: 'protected', reasonCode: 'release' })
+    expect(c[evidence.a.id]).toMatchObject({ class: 'protected', reasonCode: 'evidence' })
+    expect(c[audit.a.id]).toMatchObject({ class: 'protected', reasonCode: 'evidence' })
+    expect(c[pinned.a.id]).toMatchObject({ class: 'protected', reasonCode: 'pinned' })
+    expect(c[good[0].a.id].class).toBe('keep'); expect(c[good[1].a.id].class).toBe('keep') // the latest two successful installers
+  })
+
+  it('failed output on an open pull request branch stays an ordinary failed-run review even when superseded there', () => {
+    const open = [{ number: 7, headRef: 'feature/x', headSha: 'x' }]
+    const onPr = (d: number, ok: boolean) => art('app-windows-x64', d, { sizeBytes: MB250 }, run({ headBranch: 'feature/x', event: 'pull_request', pullNumbers: [7], conclusion: ok ? 'success' : 'failure' }))
+    const items = [onPr(0, true), onPr(1, true), onPr(5, false)]
+    const c = classes(items, { pulls: open })
+    expect(c[items[2].a.id]).toMatchObject({ class: 'review', reasonCode: 'failed-run' })
+    expect(c[items[2].a.id].reason).toContain('open pull request #7')
+    // not even an explicit failure policy offers it
+    const p = classes(items, { pulls: open, policy: { ...DEFAULT_POLICY, failedOutput: 'delete-superseded', failedGraceDays: 0 } })
+    expect(p[items[2].a.id].class).toBe('review')
+  })
+
+  it('a separately approved failure policy is what makes it a candidate, and grace then applies to failed output only', () => {
+    const good = onMain('app-windows-x64', [1, 2])
+    const failed = [failedBuild(5), failedBuild(40)]
+    const policy = { ...DEFAULT_POLICY, failedOutput: 'delete-superseded' as const, failedGraceDays: 14 }
+    const c = classes([...good, ...failed], { policy })
+    expect(c[failed[0].a.id].class).toBe('review') // inside its own grace period
+    expect(c[failed[1].a.id]).toMatchObject({ class: 'delete-candidate', reasonCode: 'superseded-failed' })
+  })
+})
