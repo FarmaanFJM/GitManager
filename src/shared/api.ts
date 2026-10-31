@@ -5,6 +5,9 @@ import type {
   Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, Root, ServiceStatus, Settings, StartupState,
 } from './types.js'
 import type { ArtifactRef, AuditView, AuthState, CleanupPlan, OpenTarget, OperationResult, StorageSettings, StorageState } from './storage.js'
+import type {
+  ActionOptions, ActionResult, GitHubOrgChoice, GitHubRepoChoice, HostProbe, InstallJob, InstallPlan, RunnerAction, RunnerDiagnostics, RunnerGroupInfo, RunnerHost, RunnerRoot, RunnersOpenTarget, RunnersScan, RunnersSettings, RunnersState, RunsOnExample, SshConfigHost, WorkflowLabelReport,
+} from './runners.js'
 
 export type AppState = {
   repos: Repo[]
@@ -33,6 +36,10 @@ export type ApiEvents = {
   'storage-status': Pick<StorageState, 'scan' | 'operation' | 'scheduler' | 'auth'>
   /** The stored scan, alerts or settings changed; ask for storageState again. */
   'storage-changed': null
+  /** Runners: scan progress, the running installation job, busy installations and sign-in state (small). */
+  'runners-status': { scan: RunnersScan; job: InstallJob | null; busy: Record<string, RunnerAction>; auth: AuthState | null }
+  /** Runners: the inventory or settings changed; ask for runnersState again. */
+  'runners-changed': null
 }
 
 export interface GitManagerApi {
@@ -105,6 +112,32 @@ export interface GitManagerApi {
   storageAudit(): Promise<AuditView>
   storageOpen(target: OpenTarget): Promise<Result<void>>
 
+  runnersState(): Promise<RunnersState>
+  runnersAuth(): Promise<AuthState>
+  /** Starts a scan in the background; progress arrives as runners-status events, results as runners-changed. */
+  runnersScan(opts?: { localOnly?: boolean; githubOnly?: boolean }): Promise<Result<{ started: true }>>
+  runnersCancel(): Promise<boolean>
+  /** GitHub-only refresh, rate-limited to once a minute unless forced. */
+  runnersRefresh(force?: boolean): Promise<Result<{ started: boolean }>>
+  runnersSaveSettings(settings: RunnersSettings): Promise<Result<void>>
+  runnersAddRoot(host: RunnerHost, path: string): Promise<Result<RunnerRoot>>
+  runnersRemoveRoot(rootId: string): Promise<Result<void>>
+  runnersSshHosts(): Promise<SshConfigHost[]>
+  runnersAllowSsh(alias: string, allowed: boolean): Promise<Result<void>>
+  runnersProbe(host: RunnerHost): Promise<Result<HostProbe>>
+  runnersRepos(query: string): Promise<GitHubRepoChoice[]>
+  runnersOrgs(): Promise<GitHubOrgChoice[]>
+  runnersGroups(org: string): Promise<Result<RunnerGroupInfo[]>>
+  runnersPlan(request: unknown): Promise<Result<InstallPlan>>
+  /** Runs a reviewed plan. Refused unless confirm is true. */
+  runnersInstall(planId: string, confirm: boolean): Promise<Result<InstallJob>>
+  runnersCancelInstall(): Promise<boolean>
+  runnersAction(key: string, action: RunnerAction, opts: ActionOptions): Promise<Result<ActionResult>>
+  runnersDiagnostics(key: string): Promise<RunnerDiagnostics>
+  runnersRunsOn(key: string): Promise<Result<RunsOnExample>>
+  runnersWorkflows(repo: string): Promise<Result<WorkflowLabelReport>>
+  runnersOpen(target: RunnersOpenTarget): Promise<Result<void>>
+
   on<K extends keyof ApiEvents>(event: K, cb: (payload: ApiEvents[K]) => void): () => void
 }
 
@@ -117,4 +150,6 @@ export const API_METHODS = [
   'discoveryStatus', 'rescan', 'unignoreRepo', 'branchOverview', 'branchDetail', 'setCompareBase',
   'storageState', 'storageAuth', 'storageScan', 'storageCancel', 'storageCandidates', 'storagePreview', 'storageDelete', 'storagePin', 'storageProtectRepo',
   'storageSavePolicy', 'storageSaveSettings', 'storageRunAutomation', 'storageDismissRecommendation', 'storageAudit', 'storageOpen',
+  'runnersState', 'runnersAuth', 'runnersScan', 'runnersCancel', 'runnersRefresh', 'runnersSaveSettings', 'runnersAddRoot', 'runnersRemoveRoot', 'runnersSshHosts', 'runnersAllowSsh', 'runnersProbe',
+  'runnersRepos', 'runnersOrgs', 'runnersGroups', 'runnersPlan', 'runnersInstall', 'runnersCancelInstall', 'runnersAction', 'runnersDiagnostics', 'runnersRunsOn', 'runnersWorkflows', 'runnersOpen',
 ] as const satisfies readonly Exclude<keyof GitManagerApi, 'on'>[]

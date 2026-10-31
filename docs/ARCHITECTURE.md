@@ -29,6 +29,16 @@ src/
     audit.ts       append-only, hash-chained local audit log
     scheduler.ts   schedule arithmetic and the automatic-safe split; service.ts owns scan, operations, schedule and persisted state
     config.ts      settings, per-repository policies, presets, pins (validated on load); alerts.ts derived warnings
+  core/runners/  Tools: GitHub Actions self-hosted runners (see "Runners module" below)
+    model.ts       scopes, identities, reconciliation of local installations with GitHub records, capabilities, runs-on
+    hosts.ts       HostShell: this computer, a WSL distribution (wsl.exe --exec, -u root), an SSH host (every token quoted); probing; SSH config
+    discovery.ts   bounded read-only discovery per host: one sh run (Linux, macOS, WSL, SSH), sc.exe and folders (Windows)
+    github.ts      the runner API: list, get, tokens, delete, downloads, groups, organizations, latest release and checksums
+    install.ts     request validation, the plan (checks and exact commands), the executor (steps, redaction, cancellation, partial outcomes)
+    lifecycle.ts   start, stop, restart, inspect, diagnostics, check-update, update, unregister, uninstall
+    workflows.ts   runs-on reader and label matching
+    manager.ts     RunnerManager: inventory, scans, jobs, actions, persistence (runners-state.json), events
+    config.ts      the runners section of gitmanager.json, validated on load
   shared/      types and the API contract shared by all three layers (type-only, plus the method list)
   main/
     backend.ts     application logic behind the API; validates arguments, returns Results
@@ -38,6 +48,7 @@ src/
     tray.ts        notification area icon with Open and Quit
     main.ts        window, single instance, tray, security settings, quit handling
   renderer/    React interface built from Summa-UI (see SUMMA_UI_ADOPTION.md)
+    tools/         the Tools view (registry of tools) and tools/runners/ (Runner Manager: table, details, wizard, discovery, workflows)
 third_party/summa-ui/   pinned Summa-UI guidance bundle and reference implementation (verified, unmodified)
 ```
 
@@ -107,6 +118,19 @@ Tests replace `GhApi` with an in-memory GitHub (`test/storage/fakeGithub.ts`) th
 - **Schedule.** `StorageService.start()` runs a one-minute timer in the main process only while GitManager runs; it is off unless the user enabled it, scans only repositories whose mode is not manual, and deletes only through `splitForAuto` (approved policy hash, high-confidence reasons, complete context, below the large-deletion limit). Nothing is installed in the operating system.
 - **Persistence.** Settings, policies, protected repositories and pins are the `storage` section of `gitmanager.json`, validated on load like the rest. The last scan (`storage-state.json`) and the audit log (`storage-audit.jsonl`) are separate files in the same folder.
 - **Branches.** Storage has no connection to Git branch management; GitManager still never deletes branches.
+
+## Runners module
+
+`RunnerManager` (core/runners/manager.ts, owned by `Backend`) is the Tools section's first utility. Everything that touches a machine goes through a `HostShell` (core/runners/hosts.ts): `NativeShell` (fs and `spawn`), `WslShell` (`wsl.exe -d <distro> --exec …`, root through `-u root`) and `SshShell` (`ssh -o BatchMode=yes … <alias> <command>`, where the command is built by single-quoting every token). Elevation on this computer is `sudo -n` (Linux; refused up front when a password would be needed) or a PowerShell `Start-Process -Verb RunAs` whose script embeds every value as a quoted literal (Windows); macOS needs none for the runner's launchd agent.
+
+GitHub access is a second `GhCli` with the `runners` profile: GET anywhere, POST only for registration and removal tokens, DELETE only for one runner by id; the Storage instance keeps its own rules unchanged. Tokens are returned to the install or remove step, kept in memory for that step, redacted (`redact.ts`) from every line of output and never persisted.
+
+- **Discovery** (`discovery.ts`) is read-only and bounded. POSIX hosts run one fixed `sh` script with positional arguments (roots as `depth:path`), which prints tagged records: the `.runner` content (base64), the `.service` content, whether `.credentials` exists, the listener version (`Runner.Listener --version`, else the newest `_diag` log), the systemd or launchd state, and the listener processes whose working directory is the installation. Windows uses `sc.exe query` and `sc.exe qc` for the `actions.runner.*` services, the file system for folders, and `Get-CimInstance Win32_Process` for listener processes by executable path. An installation is recognized by `.runner`, or by the runner program next to `config.sh`/`config.cmd`.
+- **Reconciliation** (`model.ts`) pairs a local installation with a GitHub record by the runner id in `.runner` within the same scope, or by name only inside one scope when the id is missing and the name is unique there. Everything unpaired is its own row. GitHub status (online, offline, busy) and the local service state are separate fields; `attention` lists the contradictions. `capabilitiesFor` decides what each row allows and why not.
+- **Installation** (`install.ts`) validates the request, probes the host, checks the directory (absolute, no dot segments or quoting characters, not a system folder, new or empty, not an existing installation), collisions (name in scope, service name), prerequisites (systemd, user, sudo), GitHub access (administration, without requesting a token) and the package (downloads API with `sha256_checksum`, else the release notes markers; refused without a checksum or from a non-GitHub host). The executor runs eleven steps, downloads to a temporary folder of its own, verifies the SHA-256 (and again on the target after a copy), extracts with tar, runs `./config.sh` (POSIX) or `bin\Runner.Listener.exe configure` (Windows, as administrator with `--runasservice`), checks `.runner`, installs and starts the service, and verifies with `GET …/actions/runners/{id}` and a re-inspection. Failures keep every file and report the outcome (downloaded, extracted, registered, service installed, running).
+- **Lifecycle** (`lifecycle.ts`) only acts on services recorded in `.service` and processes identified by path; busy runners need `allowBusy`, destructive operations need `confirm`; update sets `bin` and `externals` aside and restores them on failure; uninstall refuses while registered (unless unregistering first), refuses non-installations and system paths, and deletes exactly the installation directory.
+- **Persistence.** The `runners` section of `gitmanager.json` (settings, roots, allowed SSH hosts, known installations) is validated on load; `runners-state.json` holds the last inventory and recent jobs with redacted output.
+- **IPC.** `runners*` methods on the backend validate every argument (host, path, ids, enumerated actions, booleans coerced, scopes parsed); `runners-status` and `runners-changed` events keep the window current. The renderer refreshes GitHub on focus and on a timer; the manager rate-limits refreshes to one a minute.
 
 ## Persistence
 

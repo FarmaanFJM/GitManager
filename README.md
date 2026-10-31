@@ -49,6 +49,14 @@ GitManager never discards changes, resets, force-pulls, rebases, merges, deletes
 
 ![Storage overview](docs/screenshots/storage-01-overview.png)
 
+**Tools: Runners (GitHub Actions self-hosted runners)**
+- A **Tools** entry in the sidebar holds developer utilities; the first is **Runners**. One table answers which runners you have, which are online, offline or busy (from GitHub), which system and machine host each one and whether it is native, WSL 2 or remote, where it is installed, which repository or organization it serves, its labels and version, and what GitManager can do with it.
+- Automatic discovery: installations on this computer and in WSL 2 distributions (and on SSH hosts you allow), recognized by the runner's own metadata and service registrations, never by folder name; plus the runners GitHub lists for your repositories and organizations, read through your GitHub CLI sign-in. Local observations and GitHub facts are reconciled by runner id and kept apart; what could not be read is reported as a limitation.
+- **Add runner**: platform, environment (this computer, a WSL distribution, an allowed SSH host), repository or organization, configuration, a reviewed plan with every command, then the real installation: official package, published SHA-256, extraction, the runner's configure with a one-time registration token, the service (systemd, launchd or Windows service), start, and verification against GitHub and the local state. A failure stops at its step and reports exactly what was done.
+- Start, stop, restart, inspect, logs, check for updates, update in place, remove the registration, uninstall (the exact directory shown first), each only when possible and safe; a busy runner is never interrupted without an explicit confirmation. Tokens are never stored or shown. See [Runners](docs/RUNNERS.md).
+
+![Runner inventory](docs/screenshots/runners-03-inventory.png)
+
 **Window and startup**
 - On Windows there is no separate title bar: Windows' own minimize, maximize (with Snap layouts) and close buttons sit on the charcoal main panel (`#1B1C1C`), beside the repository header, and the GitManager logo and name are at the top of the sidebar. Drag the top of the window to move it, double-click to maximize; resizing and Snap work as in any Windows app.
 - Settings, General (all off by default): **Launch at Windows startup**, **Start minimized** (only for that automatic start: GitManager waits in the notification area) and **Minimize to system tray** (click the tray icon to bring the window back; its menu has Open GitManager and Quit GitManager).
@@ -96,6 +104,7 @@ npm run typecheck
 npm test                  # unit and integration tests: temporary Git repositories and real processes
 npm run test:e2e          # the first-release acceptance scenario against the built app
 npm run test:e2e:storage  # the Storage scenario: the real app against a stand-in for the GitHub CLI (no network, no real repository)
+npm run test:e2e:runners  # the Runners scenario: discovery, GitHub reconciliation, the wizard installing a stand-in runner package, lifecycle (Linux)
 node scripts/e2e-windows.mjs release/GitManager-<version>-x64.exe   # Windows: install and test the installed build
 ```
 
@@ -103,11 +112,14 @@ node scripts/e2e-windows.mjs release/GitManager-<version>-x64.exe   # Windows: i
 
 `npm run test:e2e:storage` launches the built app with `GITMANAGER_GH` pointing at `scripts/e2e/fake-gh.mjs`, a stand-in for `gh api` that serves a demonstration world of four repositories and applies deletions to it, then drives Storage: scan, tables, filters, sorting, pinning, cleanup preview, a dry run, real deletion with GitHub-confirmed results, the audit log, Auto Cleanup, persistence across a restart, and the sign-in and permission errors. Needs a display (`xvfb-run` on Linux); no Java or Chrome. It writes screenshots and a step report to `e2e-output/storage/`.
 
+`npm run test:e2e:runners` launches the built app with the same stand-in GitHub CLI extended with the self-hosted runner endpoints, a registered installation on disk and a stand-in runner package served from a local folder (`GITMANAGER_RUNNER_PACKAGE_DIR`) whose `config.sh` registers with that world exactly as the real one would, then drives the Runners tool: discovery folders, scan, reconciliation with GitHub, search, filters, sorting, details, diagnostics, workflow matching, the wizard with a blocked plan and a real installation (verified download, extraction, registration token, GitHub verification), the narrow layout, protected operations, removing a GitHub-only registration, unregistering and uninstalling, Settings, and persistence across a restart. Needs a display (`xvfb-run` on Linux). It writes screenshots and a step report to `e2e-output/runners/`.
+
 `scripts/e2e-windows.mjs` (Windows only, run by CI on `windows-latest`) installs the NSIS installer silently, starts the installed `GitManager.exe` and drives it with real Windows mouse and keyboard input: double-click and the caption buttons to maximize, restore and minimize, dragging and resizing, Win+Left, the colours around the caption buttons in both window states and at 150 % scale, the startup entry in the registry (including one turned off in Task Manager), minimize to tray, the second instance, and that uninstalling removes the startup entry.
 
 ## Documentation
 
 - [Storage](docs/STORAGE.md): artifact inventory, classification rules, safe deletion, Auto Cleanup, and what the GitHub API cannot tell.
+- [Runners](docs/RUNNERS.md): the Tools section and the Runner Manager: discovery, installation, service management, WSL, permissions, security, troubleshooting and what was verified.
 - [Live verification](docs/LIVE_VERIFICATION.md): qualifying Storage against real GitHub and Windows, with an independent reconciliation script.
 - [Architecture](docs/ARCHITECTURE.md): modules, process model, security, Windows and WSL execution.
 - [Summa-UI adoption](docs/SUMMA_UI_ADOPTION.md): pinned release, component reuse, deviations, check results, feedback filed.

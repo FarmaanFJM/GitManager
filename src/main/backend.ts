@@ -3,7 +3,7 @@ import { dirname } from 'node:path'
 import type { AppState, Distros, LaunchPreview } from '../shared/api.js'
 import type { BranchDetail, BranchOverview, DiscoveredRepo, DiscoveryStatus, Location, OpError, Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, Root, ServiceStatus, Settings, StartupState } from '../shared/types.js'
 import { realpathSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { AutoDiscovery } from '../core/autodiscovery.js'
 import { discover } from '../core/discovery.js'
 import { BranchInspector } from '../core/git/branches.js'
@@ -21,6 +21,11 @@ import type { ArtifactRef, AuditView, AuthState, CleanupPlan, OpenTarget, Operat
 import { validRepoName } from '../core/storage/config.js'
 import { GhCli } from '../core/storage/gh.js'
 import { StorageService } from '../core/storage/service.js'
+import type { ActionOptions, ActionResult, GitHubOrgChoice, GitHubRepoChoice, HostProbe, InstallJob, InstallPlan, RunnerAction, RunnerDiagnostics, RunnerGroupInfo, RunnerHost, RunnerRoot, RunnersOpenTarget, RunnersState, RunsOnExample, SshConfigHost, WorkflowLabelReport } from '../shared/runners.js'
+import { parseHost } from '../core/runners/config.js'
+import { RunnerManager } from '../core/runners/manager.js'
+import { validOwner, validRepoFull } from '../core/runners/model.js'
+import { validSshAlias } from '../core/runners/hosts.js'
 
 /** What the backend needs from the desktop shell. Electron provides it in main.ts; tests provide fakes. */
 export type Host = {
@@ -49,7 +54,7 @@ export class Backend {
   constructor(
     readonly store: Store,
     private readonly host: Host,
-    readonly opts: { os?: HostOs; git?: Git; services?: ServiceManager; readFile?: FileReader; discovery?: AutoDiscovery; home?: string; startup?: Startup; storage?: StorageService } = {},
+    readonly opts: { os?: HostOs; git?: Git; services?: ServiceManager; readFile?: FileReader; discovery?: AutoDiscovery; home?: string; startup?: Startup; storage?: StorageService; runners?: RunnerManager } = {},
   ) {
     this.services = opts.services ?? new ServiceManager({ os: opts.os })
     this.inspector = new BranchInspector()
@@ -61,9 +66,15 @@ export class Backend {
       dir: dirname(store.file), gh: new GhCli(), config: () => store.data.storage, saveConfig: () => store.save(),
       openExternal: u => host.openExternal(u), notify: (t, b) => host.notify?.(t, b),
     })
+    // The Runners tool has its own GitHub CLI door (registration tokens and runner removal allowed, nothing else) and its own request log.
+    this.runners = opts.runners ?? new RunnerManager({
+      dir: dirname(store.file), gh: new GhCli({ profile: 'runners' }), config: () => store.data.runners, saveConfig: () => store.save(), os: opts.os ?? hostOs(), tmpDir: tmpdir(),
+      repos: () => store.data.repos, openExternal: u => host.openExternal(u), openPath: p => host.openPath(p),
+    })
   }
 
   readonly storage: StorageService
+  readonly runners: RunnerManager
 
   readonly inspector: BranchInspector
   readonly discovery: AutoDiscovery
@@ -478,5 +489,61 @@ export class Backend {
     if (kind === 'repo-actions') return this.storage.open({ kind, repo: String(t.repo) }) as Promise<Result<void>>
     if (kind === 'billing' || kind === 'billing-docs' || kind === 'scopes') return this.storage.open({ kind } as OpenTarget) as Promise<Result<void>>
     return err('INVALID', 'Unknown link.')
+  }
+  /* ------------------------------------------------------------ runners (GitHub Actions self-hosted runners) */
+
+  private runnerKey(raw: unknown) { return v.str(raw, 'Runner', { max: 1024, allowEmpty: false }) }
+  private runnerHost(raw: unknown): RunnerHost { const h = parseHost(raw); if (!h) throw new v.ValidationError('Invalid host.'); return h }
+
+  runnersState(): Promise<RunnersState> { return this.runners.state() }
+  runnersAuth(): Promise<AuthState> { return this.runners.refreshAuth() }
+  async runnersScan(opts: unknown): Promise<Result<{ started: true }>> {
+    const o = (opts ?? {}) as Record<string, unknown>
+    return this.runners.scan({ localOnly: o.localOnly === true, githubOnly: o.githubOnly === true }) as Result<{ started: true }>
+  }
+  runnersCancel(): boolean { return this.runners.cancel() }
+  async runnersRefresh(force: unknown): Promise<Result<{ started: boolean }>> { return this.runners.refreshGithub(force === true) as Result<{ started: boolean }> }
+  async runnersSaveSettings(settings: unknown): Promise<Result<void>> { return this.runners.saveSettings(settings) as Result<void> }
+  async runnersAddRoot(host: unknown, path: unknown): Promise<Result<RunnerRoot>> {
+    return this.runners.addRoot(this.runnerHost(host), v.str(path, 'Path', { max: 1024, allowEmpty: false }).trim()) as Result<RunnerRoot>
+  }
+  async runnersRemoveRoot(id: unknown): Promise<Result<void>> { return this.runners.removeRoot(v.id(id)) as Result<void> }
+  runnersSshHosts(): Promise<SshConfigHost[]> { return this.runners.sshHosts() }
+  async runnersAllowSsh(alias: unknown, allowed: unknown): Promise<Result<void>> {
+    if (!validSshAlias(alias)) throw new v.ValidationError('Invalid SSH host alias.')
+    return this.runners.setSshHostAllowed(alias, allowed === true) as Result<void>
+  }
+  async runnersProbe(host: unknown): Promise<Result<HostProbe>> { return ok(await this.runners.probe(this.runnerHost(host))) }
+  runnersRepos(query: unknown): Promise<GitHubRepoChoice[]> { return this.runners.repoChoices(v.str(query ?? '', 'Search', { max: 200 })) }
+  runnersOrgs(): Promise<GitHubOrgChoice[]> { return this.runners.orgChoices() }
+  async runnersGroups(org: unknown): Promise<Result<RunnerGroupInfo[]>> {
+    if (!validOwner(org)) throw new v.ValidationError('Invalid organization.')
+    return this.runners.runnerGroups(org) as Promise<Result<RunnerGroupInfo[]>>
+  }
+  async runnersPlan(request: unknown): Promise<Result<InstallPlan>> { return this.runners.plan(request) as Promise<Result<InstallPlan>> }
+  /** Installs a reviewed plan. Refused unless confirm is exactly true. */
+  async runnersInstall(planId: unknown, confirm: unknown): Promise<Result<InstallJob>> { return this.runners.startInstall(typeof planId === 'string' ? v.id(planId, 'Plan') : planId, confirm) as Result<InstallJob> }
+  runnersCancelInstall(): boolean { return this.runners.cancelInstall() }
+  async runnersAction(key: unknown, action: unknown, opts: unknown): Promise<Result<ActionResult>> {
+    const actions: RunnerAction[] = ['start', 'stop', 'restart', 'inspect', 'check-update', 'update', 'unregister', 'uninstall']
+    if (!actions.includes(action as RunnerAction)) throw new v.ValidationError('Unknown operation.')
+    const o = (opts ?? {}) as Record<string, unknown>
+    const options: ActionOptions = { allowBusy: o.allowBusy === true, confirm: o.confirm === true, unregisterFirst: o.unregisterFirst === true }
+    return this.runners.action(this.runnerKey(key), action as RunnerAction, options) as Promise<Result<ActionResult>>
+  }
+  runnersDiagnostics(key: unknown): Promise<RunnerDiagnostics> { return this.runners.diagnostics(this.runnerKey(key)) }
+  async runnersRunsOn(key: unknown): Promise<Result<RunsOnExample>> { return this.runners.runsOn(this.runnerKey(key)) as Result<RunsOnExample> }
+  async runnersWorkflows(repo: unknown): Promise<Result<WorkflowLabelReport>> {
+    if (!validRepoFull(repo)) throw new v.ValidationError('Invalid repository name.')
+    return this.runners.workflowReport(repo) as Promise<Result<WorkflowLabelReport>>
+  }
+  async runnersOpen(target: unknown): Promise<Result<void>> {
+    const t = (target ?? {}) as Record<string, unknown>
+    const kinds = ['runner-settings', 'scope', 'workflows', 'docs', 'folder', 'release']
+    if (!kinds.includes(t.kind as string)) return err('INVALID', 'Unknown link.')
+    if (t.kind === 'folder') return this.runners.open({ kind: 'folder', key: this.runnerKey(t.key) }) as Promise<Result<void>>
+    if (t.kind === 'docs') return this.runners.open({ kind: 'docs', page: String(t.page) as never }) as Promise<Result<void>>
+    if (t.kind === 'release') return this.runners.open({ kind: 'release', version: typeof t.version === 'string' ? t.version : null }) as Promise<Result<void>>
+    return this.runners.open({ kind: t.kind, scope: t.scope, runnerId: typeof t.runnerId === 'number' ? t.runnerId : null } as RunnersOpenTarget) as Promise<Result<void>>
   }
 }

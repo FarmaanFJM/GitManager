@@ -6,6 +6,7 @@ import type { Actions, Model } from './App'
 import { Field } from './ProfileEditor'
 import { ErrorBanner } from './Workspace'
 import { ago } from './util'
+import type { RunnersSettings } from '../shared/runners'
 
 /** A Summa-UI switch with its visible label and an optional hint; the fieldset disables it for pointer and keyboard alike. */
 function SwitchRow({ label, hint, checked, onChange, disabled }: { label: string; hint?: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
@@ -25,6 +26,15 @@ export function SettingsView({ model, actions }: { model: Model; actions: Action
   const [error, setError] = useState<OpError | null>(null)
   const [saved, setSaved] = useState(true)
   const [startup, setStartup] = useState<StartupState | null>(null)
+  const [runners, setRunners] = useState<RunnersSettings | null>(null)
+  useEffect(() => { void api.runnersState().then(st => setRunners(st.config.settings)) }, [])
+  const saveRunners = async (patch: Partial<RunnersSettings>) => {
+    if (!runners) return
+    const next = { ...runners, ...patch }
+    setRunners(next)
+    const r = await api.runnersSaveSettings(next)
+    if (!r.ok) setError(r.error)
+  }
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => { setS(x => ({ ...x, [k]: v })); setSaved(false) }
   const windows = model.platform.os === 'windows'
 
@@ -113,6 +123,16 @@ export function SettingsView({ model, actions }: { model: Model; actions: Action
               {disc?.running ? `Searching, ${disc.locationsScanned} of ${disc.locationsTotal} locations` : disc?.finishedAt ? `Last search ${ago(disc.finishedAt)}: ${disc?.found ?? 0} found, ${disc?.added ?? 0} added` : ''}
             </span>
           </div>
+
+          <div className="gm-form-head">
+            <h2 className="gm-section-h">Runners</h2>
+            <span className="grow" />
+            <Button variant="ghost" onClick={() => actions.setView({ kind: 'tools', tool: 'runners' })}>Open Runners</Button>
+          </div>
+          <SwitchRow label="Find GitHub Actions runners at startup" checked={runners?.autoDiscover ?? true} disabled={!runners} onChange={v => void saveRunners({ autoDiscover: v })}
+            hint={`${windows ? 'Looks for runner installations and services on this computer and in your WSL distributions.' : 'Looks for runner installations and services on this computer.'} It only reads; nothing is started, registered or changed.`} />
+          <SwitchRow label="Also read GitHub at startup" checked={runners?.githubAtStartup ?? false} disabled={!runners} onChange={v => void saveRunners({ githubAtStartup: v })}
+            hint="Asks GitHub for the runners of your repositories through the GitHub CLI sign-in at every launch. Off keeps startup offline; the Runners tool reads GitHub when you scan." />
 
           {model.data.ignored.length > 0 && (
             <>
