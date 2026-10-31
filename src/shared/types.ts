@@ -215,3 +215,58 @@ export type DiscoveryStatus = {
   finishedAt: string | null
   errors: string[]
 }
+
+/* ------------------------------------------------------------ deleting a repository's local folder */
+
+export type DeletionFacts = {
+  /** null when Git could not be read (not a repository any more, or Git is missing). */
+  changes: { staged: number; unstaged: number; untracked: number; conflicted: number } | null
+  upstream: string | null
+  /** Commits on the current branch not on its configured upstream; null without an upstream. */
+  ahead: number | null
+  /** Commits on any local branch that no remote-tracking branch contains (the work that exists only here). */
+  localOnlyCommits: number | null
+  stashes: number | null
+}
+
+export type TrashSupport = { available: boolean; label: string; reason: string | null }
+
+export type DeletionReport = {
+  repoId: string
+  name: string
+  location: Location
+  /** What the user sees: the full path, with the distribution for WSL. */
+  display: string
+  environment: string
+  exists: boolean
+  /** Real path after resolving links; equal to the registered path for an ordinary folder. */
+  resolvedPath: string | null
+  facts: DeletionFacts
+  runningServices: string[]
+  nestedRepos: string[]
+  linkedWorktrees: { path: string; exists: boolean; inside: boolean }[]
+  /** This folder is itself a linked worktree of another repository. */
+  worktreeOf: string | null
+  submodules: string[]
+  /** Runner installations inside the folder (they would be deleted with it). */
+  runnerInstallations: string[]
+  /** Other repositories registered in GitManager that live inside the folder. */
+  containedRepos: { id: string; name: string; path: string }[]
+  trash: TrashSupport
+  /** Reasons the deletion is refused. Empty means it may proceed after confirmation. */
+  blockers: string[]
+  /** Things the user must understand: work that will be lost, other data that goes with the folder. */
+  warnings: string[]
+  /** True when deleting would discard uncommitted, untracked or unpushed work (the dialog asks for a separate acknowledgement). */
+  losesWork: boolean
+  inspectedAt: string
+}
+
+export type DeleteOutcome =
+  | { ok: true; deleted: true; method: 'trash' | 'permanent'; message: string; notes: string[] }
+  | { ok: true; deleted: false; alreadyGone: true; message: string; notes: string[] }
+  | { ok: false; code: 'CONFIRM_MISMATCH' | 'REFUSED' | 'TRASH_UNAVAILABLE' | 'TRASH_FAILED' | 'PARTIAL' | 'FAILED' | 'BUSY' | 'CONFIRM_REQUIRED'; message: string; detail?: string; canDeletePermanently?: boolean; remaining?: string[] }
+
+
+/** What a successful deletion call reports: whether the folder was deleted, how, and exactly what happened. Failures use the Result error with these codes. */
+export type DeleteResult = { deleted: boolean; alreadyGone: boolean; method: 'trash' | 'permanent' | null; message: string; notes: string[]; removedRepoIds: string[] }

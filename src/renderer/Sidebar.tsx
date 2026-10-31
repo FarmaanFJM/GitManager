@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Icon, MenuButton, NavItem, SearchInput } from '../../third_party/summa-ui/src/ui'
 import logo from '../../assets/brand/GitManager-Summa.svg'
 import { groupByEnvironment } from './util'
+import { RepoMenu, type RepoMenuTarget } from './RepoMenu'
 
 /** Summa-UI's brand row (.brand) with GitManager's own logo in place of the generic mark (see docs/BRANDING.md). */
 function Brand() {
@@ -20,6 +21,7 @@ import type { Actions, Model, View } from './App'
  */
 export function Sidebar({ model, actions, view }: { model: Model; actions: Actions; view: View }) {
   const [q, setQ] = useState('')
+  const [menu, setMenu] = useState<RepoMenuTarget | null>(null)
   const repos = model.data.repos
   const shown = useMemo(() => {
     const n = q.trim().toLowerCase()
@@ -37,6 +39,9 @@ export function Sidebar({ model, actions, view }: { model: Model; actions: Actio
     const current = (view.kind === 'repo' || view.kind === 'profile') && model.data.ui.selectedRepoId === r.id
     return (
       <button key={r.id} type="button" className="nav-item" aria-current={current ? 'true' : undefined} onClick={() => actions.select(r.id)}
+        onContextMenu={e => { e.preventDefault(); setMenu({ repoId: r.id, x: e.clientX, y: e.clientY }) }}
+        onKeyDown={e => { if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { e.preventDefault(); e.stopPropagation(); const b = e.currentTarget.getBoundingClientRect(); setMenu({ repoId: r.id, x: b.left + 24, y: b.bottom }) } }}
+        aria-haspopup="menu"
         title={`${r.location.kind === 'wsl' ? `${r.location.distro}: ${r.location.path}` : r.location.path}${r.worktree ? ' (worktree)' : ''}`}>
         <Icon name="folder" size={16} />
         <span className="truncate">{r.name}</span>
@@ -86,6 +91,7 @@ export function Sidebar({ model, actions, view }: { model: Model; actions: Actio
       {model.discovery?.running && (
         <p className="gm-discovery" role="status"><span className="sm-spinner" aria-hidden="true" />Finding repositories{model.discovery.added ? `, ${model.discovery.added} added` : ''}</p>
       )}
+      <RepoMenu model={model} actions={actions} target={menu} onClose={() => setMenu(null)} />
       <div className="gm-side-foot">
         <NavItem icon="layers" label="Tools" current={view.kind === 'tools'} onClick={() => actions.setView({ kind: 'tools', tool: null })} />
         <NavItem icon="drive" label="Storage" current={view.kind === 'storage'} onClick={() => actions.setView({ kind: 'storage' })} />

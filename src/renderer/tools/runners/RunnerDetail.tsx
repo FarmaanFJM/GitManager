@@ -14,7 +14,7 @@ function Row({ label, children, mono }: { label: string; children: React.ReactNo
 }
 
 /** Everything known about one runner, GitHub facts and local observations kept apart, with the operations this GitManager can perform. */
-export function RunnerDetail({ runner: r, busy, toast, onClose, onAction, stacked }: { runner: Runner; busy: RunnerAction | undefined; toast: ToastApi; onClose: () => void; onAction: (action: RunnerAction) => void; stacked: boolean }) {
+export function RunnerDetail({ runner: r, busy, toast, onClose, onAction, stacked }: { runner: Runner; busy: RunnerAction | undefined; toast: ToastApi; onClose: () => void; onAction: (action: RunnerAction | 'retire') => void; stacked: boolean }) {
   const [runsOn, setRunsOn] = useState<RunsOnExample | null>(null)
   const [diag, setDiag] = useState<RunnerDiagnostics | null | 'loading'>(null)
   useEffect(() => { setDiag(null); void api.runnersRunsOn(r.key).then(x => setRunsOn(x.ok ? x.value : null)) }, [r.key, r.github?.labels.length])
@@ -24,7 +24,7 @@ export function RunnerDetail({ runner: r, busy, toast, onClose, onAction, stacke
   const loadDiag = async () => { setDiag('loading'); setDiag(await api.runnersDiagnostics(r.key)) }
   const openGitHub = () => { if (r.scope) void api.runnersOpen({ kind: 'runner-settings', scope: r.scope, runnerId: g?.id ?? null }) }
   const running = l && (l.service.state === 'running' || l.process.running === true)
-  const act = (a: RunnerAction) => () => onAction(a)
+  const act = (a: RunnerAction | 'retire') => () => onAction(a)
   const title = (cap: { allowed: boolean; reason: string | null }) => cap.reason ?? undefined
 
   return (
@@ -47,6 +47,7 @@ export function RunnerDetail({ runner: r, busy, toast, onClose, onAction, stacke
           { label: 'Copy installation path', icon: 'copy', disabled: !r.path, onSelect: () => void copy(r.path ?? '', 'Path') },
           { label: 'Runner settings on GitHub', icon: 'external', disabled: !r.scope, onSelect: openGitHub },
           { type: 'sep' },
+          ...(l && !g ? [{ label: 'Retire installation', icon: 'archive' as const, disabled: !c.retire.allowed || !!busy, onSelect: act('retire') }] : []),
           { label: g && !l ? 'Remove from GitHub' : 'Remove registration', icon: 'unlock', danger: true, disabled: !c.unregister.allowed || !!busy, onSelect: act('unregister') },
           { label: 'Uninstall', icon: 'trash', danger: true, disabled: !c.uninstall.allowed || !!busy, onSelect: act('uninstall') },
         ]} />
@@ -56,6 +57,11 @@ export function RunnerDetail({ runner: r, busy, toast, onClose, onAction, stacke
         {r.attention.length > 0 && (
           <ul className="gm-alerts gm-rattention" aria-label="Needs attention">
             {r.attention.map((a, i) => <li key={i} className="gm-alert warn"><Icon name="triangle-alert" size={15} /><span>{a}</span></li>)}
+          </ul>
+        )}
+        {r.notices.length > 0 && (
+          <ul className="gm-alerts gm-rnotices" aria-label="Notes">
+            {r.notices.map((a, i) => <li key={i} className="gm-alert"><Icon name="info" size={15} /><span>{a}</span></li>)}
           </ul>
         )}
         <section className="gm-section" aria-label="Registration">

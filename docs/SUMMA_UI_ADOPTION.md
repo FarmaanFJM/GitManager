@@ -29,7 +29,7 @@ GitManager does not consume `main` and will not change version silently. Moving 
 | Base controls | `src/styles/base.css` | `.btn` variants, `.icon-btn`, `.input`, `.select`, `.tabs`, `.nav-item`, `.list-row`, `.popover`, `.menu-item`, `.dialog`, `.skeleton`, `.eyebrow`, focus ring. |
 | Window layout | `AppShell`, `.brand` row, `NavItem`, `DrawerToggle` | Dark page, lighter main panel, 252 px sidebar, Settings in a lower sidebar region (P14). The brand row shows GitManager's logo (D4). |
 | Repository search | `SearchInput` | |
-| Add menu, More actions | `MenuButton`, `Menu` | Destructive "Remove from GitManager" is last, after a separator, danger text and icon (P19 exception for menus). |
+| Add menu, More actions, repository context menu | `MenuButton`, `Menu` | Destructive "Remove from GitManager" is last, after a separator, danger text and icon (P19 exception for menus). |
 | Profile, runtime, browser, readiness, depth selects | `Dropdown` | Profile select is creatable: "Create profile" sits inside the list (P10, AP-009). |
 | Branch picker | `Popover` + `.menu-search`, `.menu-list`, `.menu-heading`, `.menu-item` | Same pieces as `Dropdown`; see deviation D2. |
 | Overview, Branches, History; All, Local, Remote | `Tabs` (and the flat variant) | Overview is the landing view for every repository; Branches and History are details on demand. |
@@ -80,6 +80,11 @@ These are arrangements of existing tokens and classes for GitManager's content, 
 | D12 | The Add runner wizard uses a step strip (plain text, current step on `--s3`) and option rows (`.gm-opt`, `--s3` surfaces, selected on `--select` with a hairline inset) instead of radio buttons. | No stepper or choice-card preset exists. Options are buttons with `aria-pressed`; selection is monochromatic (P15); the one emerald control is the primary Next/Install button (P10). |
 | D13 | Installation progress is a vertical list of steps with a spinner, check, cross or dashed circle and a word per state. | `preset.loading-state` covers one spinner; a multi-step operation needs its history visible so a partial installation can be read. State never depends on the icon alone. |
 | D10 | The cleanup dialog is a scrolling `Dialog` (up to 760 px wide) whose body groups artifacts per repository on `--s2` cards, with a native `<progress>` while deleting. | `preset.confirm-dialog` is for a single question. A deletion of hundreds of artifacts has to be read first, so the explicit authorization is the one solid red button (a verb, the count and the size), not a second confirmation. Filed as a request for a list-confirmation variant. |
+| D14 | Menus and popovers (`.popover`) are a solid `--s4` surface with no blur, set in `app.css` over the pinned `base.css`; the entrance animation only moves (no fade from transparent), disabled items use a 55 % mix of `--text` into `--s4`, keyboard focus is one step stronger than hover, and a disabled destructive item keeps a dimmed danger colour. | The pinned `.popover` is 88 % `--s4` over a 14 px blur, and the owner does not want a glass effect: text and warnings behind a menu showed through its labels. The elevation scale already assigns `--s4` to menus (P02). Pinned files are not edited. The suggested guidance change is filed as summa-ui FB-0046 and written up in [summa-ui-proposals/opaque-menus.md](summa-ui-proposals/opaque-menus.md); it is the owner's to decide. |
+
+## Opaque menus
+
+`npm run test:e2e:menus` measures this in the real window (Electron under Xvfb), for the repository context menu and the Runner Details menu: the computed surface is `rgb(55, 56, 56)` with no `backdrop-filter` and opacity 1; the pixels inside the menu are identical with the content beneath it shown and hidden (a control run proves the same measurement catches the pinned 88 % glass); the menu is the topmost element at its centre; enabled labels have 9.9:1 contrast, disabled 4.2:1, disabled destructive 3.1:1 or more; hover is a neutral `--select-strong`; Escape closes the menu and returns focus to the trigger. The dialog scrim keeps the pinned blur (it is not a menu).
 
 ## Storage view
 
@@ -137,5 +142,6 @@ Recorded with `npm run feedback` in the summa-ui repository (branch `claude/sere
 | FB-0011 | guidance-gap | No data table preset (header row, sortable headers, numeric alignment, selection, collapse rules); the only implementation is local to the File Manager laboratory app. |
 | FB-0012 | guidance-gap | No guidance for desktop window chrome: which surface the caption buttons sit on, the title bar height, whether `AppShell`'s panel reaches the window edges, where the name and logo go, and that drag regions must exclude every control. |
 | FB-0013 | guidance-gap | `Switch` has no disabled state (no prop, no `.switch:disabled` style); dependent settings need one. GitManager uses a native `fieldset disabled` (D7). |
+| FB-0046 | guidance-incorrect | `.popover` is 88 % `--s4` over a blur and P07 says "slightly glassy", so content shows through menu labels. GitManager overrides it locally (D14); a suggested direction is in [summa-ui-proposals/opaque-menus.md](summa-ui-proposals/opaque-menus.md). Branch `claude/gitmanager-runner-dedup-yi0y2l` in summa-ui. |
 
 The registry `feedback/applications.json` only accepts applications with a path inside summa-ui, so GitManager is registered as an external, non-regression application whose path is a copy of its usage record (`feedback/external/gitmanager.usage.json`). The owner may prefer a dedicated field for external applications.

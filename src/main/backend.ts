@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { dirname } from 'node:path'
 import type { AppState, Distros, LaunchPreview } from '../shared/api.js'
-import type { BranchDetail, BranchOverview, DiscoveredRepo, DiscoveryStatus, Location, OpError, Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, Root, ServiceStatus, Settings, StartupState } from '../shared/types.js'
+import type { BranchDetail, BranchOverview, DeleteResult, DeletionReport, DiscoveredRepo, DiscoveryStatus, Location, OpError, Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, Root, ServiceStatus, Settings, StartupState } from '../shared/types.js'
 import { realpathSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { AutoDiscovery } from '../core/autodiscovery.js'
@@ -25,13 +25,16 @@ import type { ActionOptions, ActionResult, GitHubOrgChoice, GitHubRepoChoice, Ho
 import { parseHost } from '../core/runners/config.js'
 import { RunnerManager } from '../core/runners/manager.js'
 import { validOwner, validRepoFull } from '../core/runners/model.js'
-import { validSshAlias } from '../core/runners/hosts.js'
+import { shellFor as runnerShellFor, validSshAlias, type HostShell } from '../core/runners/hosts.js'
+import { RepoDeleter } from '../core/repoDelete.js'
 
 /** What the backend needs from the desktop shell. Electron provides it in main.ts; tests provide fakes. */
 export type Host = {
   pickFolder(): Promise<string | null>
   openPath(path: string): Promise<string> // '' on success, an error message otherwise (Electron's shell.openPath contract)
   openExternal(url: string): Promise<void>
+  /** Moves a path to the operating system's recycle bin or trash (Electron's shell.trashItem); rejects when that is not possible. Absent: recoverable deletion is unavailable. */
+  trashItem?(path: string): Promise<void>
   version: string
   /** Called after settings are saved or corrected (main.ts updates the tray). */
   settingsChanged?(settings: Settings): void
@@ -54,7 +57,7 @@ export class Backend {
   constructor(
     readonly store: Store,
     private readonly host: Host,
-    readonly opts: { os?: HostOs; git?: Git; services?: ServiceManager; readFile?: FileReader; discovery?: AutoDiscovery; home?: string; startup?: Startup; storage?: StorageService; runners?: RunnerManager } = {},
+    readonly opts: { os?: HostOs; git?: Git; services?: ServiceManager; readFile?: FileReader; discovery?: AutoDiscovery; home?: string; startup?: Startup; storage?: StorageService; runners?: RunnerManager; shellFor?: (loc: Location) => HostShell } = {},
   ) {
     this.services = opts.services ?? new ServiceManager({ os: opts.os })
     this.inspector = new BranchInspector()
@@ -134,6 +137,47 @@ export class Backend {
     if (this.services.activeForRepo(repo.id).length) return err('SERVICES_RUNNING', 'Stop the running services of this repository first.')
     this.store.removeRepo(repo.id)
     return ok(undefined)
+  }
+
+  private deleter() {
+    return new RepoDeleter({
+      git: this.git, os: this.os, home: this.opts.home ?? process.env.GITMANAGER_HOME ?? homedir(),
+      shellFor: loc => (this.opts.shellFor ?? ((l: Location) => runnerShellFor(l.kind === 'wsl' ? { kind: 'wsl', distro: l.distro } : { kind: 'native' }, { os: this.os })))(loc),
+      trashNative: this.host.trashItem ? p => this.host.trashItem!(p) : null,
+      repos: () => this.store.data.repos, roots: () => this.store.data.roots.map(r => r.location),
+      runnerInstalls: () => { const inv = this.runners.inventory(); return [...inv.runners, ...inv.retired.map(x => x.runner)].flatMap(r => (r.local ? [{ host: r.local.host, path: r.local.path }] : [])) },
+      runningServices: id => this.services.activeForRepo(id).map(s => this.store.profile(s.profileId)?.services.find(x => x.id === s.serviceId)?.name ?? s.serviceId),
+    })
+  }
+
+  /** Read-only: what deleting this repository's folder would affect, and whether it is allowed at all. */
+  async deletionPreview(id: unknown): Promise<Result<DeletionReport>> {
+    const repo = this.repo(id)
+    try { return ok(await this.deleter().inspect(repo)) } catch (e) { return err('INSPECT_FAILED', 'The repository could not be inspected.', (e as Error).message) }
+  }
+
+  /**
+   * Deletes the repository's local folder, never anything on GitHub. See core/repoDelete.ts for the rules; this adds the exclusive
+   * lock and the clean-up of GitManager's own records after the file system confirms the folder is gone.
+   */
+  async deleteRepoFolder(id: unknown, opts: unknown): Promise<Result<DeleteResult>> {
+    const repo = this.repo(id)
+    const o = (opts ?? {}) as Record<string, unknown>
+    const confirmPath = v.str(o.confirmPath, 'Path', { max: 4096, allowEmpty: false })
+    if (this.busy.has(repo.id)) return err('BUSY', 'Another operation is still running for this repository.')
+    this.busy.add(repo.id)
+    try {
+      const r = await this.deleter().delete(repo, { confirmPath, permanent: o.permanent === true, confirmPermanent: o.confirmPermanent === true })
+      if (!r.ok) {
+        // TRASH_UNAVAILABLE and TRASH_FAILED are the two codes after which the dialog may offer a separately confirmed permanent deletion
+        return err<DeleteResult>(r.code, r.message, r.detail)
+      }
+      const contained = r.report?.containedRepos.map(x => x.id) ?? []
+      // GitManager's records change only after the file system confirmed the folder is gone (delete() verifies that)
+      this.store.forgetDeleted(repo.id, contained)
+      this.inspector.invalidate(repo.id); this.remoteChecks.delete(repo.id)
+      return ok({ deleted: r.deleted, alreadyGone: !r.deleted, method: r.deleted ? r.method : null, message: r.message, notes: r.notes, removedRepoIds: [repo.id, ...contained] })
+    } finally { this.busy.delete(repo.id) }
   }
 
   selectRepo(id: unknown) {
@@ -530,6 +574,11 @@ export class Backend {
     const o = (opts ?? {}) as Record<string, unknown>
     const options: ActionOptions = { allowBusy: o.allowBusy === true, confirm: o.confirm === true, unregisterFirst: o.unregisterFirst === true }
     return this.runners.action(this.runnerKey(key), action as RunnerAction, options) as Promise<Result<ActionResult>>
+  }
+  async runnersRetire(key: unknown): Promise<Result<{ retired: true }>> { return this.runners.retire(this.runnerKey(key)) as Result<{ retired: true }> }
+  async runnersRestore(key: unknown): Promise<Result<{ restored: true }>> { return this.runners.restore(this.runnerKey(key)) as Result<{ restored: true }> }
+  async runnersCleanup(key: unknown, confirmPath: unknown): Promise<Result<ActionResult>> {
+    return this.runners.cleanupRetired(this.runnerKey(key), v.str(confirmPath, 'Path', { max: 1024, allowEmpty: false })) as Promise<Result<ActionResult>>
   }
   runnersDiagnostics(key: unknown): Promise<RunnerDiagnostics> { return this.runners.diagnostics(this.runnerKey(key)) }
   async runnersRunsOn(key: unknown): Promise<Result<RunsOnExample>> { return this.runners.runsOn(this.runnerKey(key)) as Result<RunsOnExample> }

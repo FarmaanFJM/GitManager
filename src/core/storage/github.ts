@@ -3,7 +3,7 @@ import type { RawArtifact } from './classify.js'
 import { validRepoName } from './config.js'
 import { errorFor, GhError, type GhApi, type GhMethod, type GhResponse } from './gh.js'
 
-export type RepoSummary = { fullName: string; private: boolean; archived: boolean; canPush: boolean; canAdmin: boolean; defaultBranch: string; owner: string; ownerType: string; pushedAt: string | null }
+export type RepoSummary = { /** GitHub's immutable repository id; null when the answer did not carry one. */ id: number | null; fullName: string; private: boolean; archived: boolean; canPush: boolean; canAdmin: boolean; defaultBranch: string; owner: string; ownerType: string; pushedAt: string | null }
 export type ReleaseSummary = { tag: string; draft: boolean; prerelease: boolean; publishedAt: string | null }
 export type PullSummary = { number: number; headRef: string; headSha: string }
 
@@ -81,12 +81,21 @@ export class GitHub {
     const full = s(x.full_name); if (!full) return null
     const perms = (x.permissions ?? {}) as Json
     const owner = (x.owner ?? {}) as Json
-    return { fullName: full, private: x.private === true, archived: x.archived === true, canPush: perms.push === true || perms.admin === true || perms.maintain === true, canAdmin: perms.admin === true, defaultBranch: s(x.default_branch) ?? 'main', owner: s(owner.login) ?? full.split('/')[0], ownerType: s(owner.type) ?? 'User', pushedAt: s(x.pushed_at) }
+    const id = n(x.id)
+    return { id: id !== null && id > 0 ? id : null, fullName: full, private: x.private === true, archived: x.archived === true, canPush: perms.push === true || perms.admin === true || perms.maintain === true, canAdmin: perms.admin === true, defaultBranch: s(x.default_branch) ?? 'main', owner: s(owner.login) ?? full.split('/')[0], ownerType: s(owner.type) ?? 'User', pushedAt: s(x.pushed_at) }
   }
 
   async listRepos(): Promise<RepoSummary[]> {
     const r = await this.paged<RepoSummary>('/user/repos?affiliation=owner,collaborator,organization_member&sort=pushed', b => (b._ as unknown[]) ?? [], GitHub.repo, 30)
     return r.items
+  }
+
+  /** A repository by its immutable id: the one lookup that never redirects, however often the repository was renamed. */
+  async getRepoById(id: number): Promise<RepoSummary> {
+    if (!Number.isSafeInteger(id) || id <= 0) throw new GhError('request', 'Invalid repository id.')
+    const r = GitHub.repo(await this.get<Json>(`/repositories/${id}`))
+    if (!r) throw new GhError('request', 'GitHub returned a repository GitManager cannot read.')
+    return r
   }
 
   async getRepo(repo: string): Promise<RepoSummary> {

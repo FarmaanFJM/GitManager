@@ -25,6 +25,8 @@ export class FakeShell implements HostShell {
   launchd = new Map<string, number | null>()
   procs: { pid: number; cwd: string }[] = []
   calls: Call[] = []
+  /** Paths that resolve elsewhere (a symbolic link): realpath answers the target. */
+  realpaths: Record<string, string> = {}
   handlers: Handler[] = []
   probe = { sys: 'Linux', machine: 'x86_64', hostname: 'build-box', user: 'me', init: 'systemd', sudo: true }
   elevationAllowed = true
@@ -161,6 +163,7 @@ export class FakeShell implements HostShell {
         if (args[0] === 'stop') { s.active = 'inactive'; this.procs = this.procs.filter(p => p.cwd !== dir) }
         return ok()
       }
+      case 'realpath': { const t = args[args.length - 1]; return this.realpaths[t] ? ok(this.realpaths[t] + '\n') : this.dirs.has(t) || this.files.has(t) ? ok(t + '\n') : ok('', 1, 'No such file') }
       case 'kill': { const pid = Number(args[args.length - 1]); this.procs = this.procs.filter(p => p.pid !== pid); return ok() }
       case 'sudo': return this.elevationAllowed ? this.run(args[args.indexOf('--') + 1], args.slice(args.indexOf('--') + 2), opts) : ok('', 1, 'sudo: a password is required')
     }
@@ -196,7 +199,9 @@ const err = (status: number, message: string, headers: Record<string, string> = 
 export class FakeRunnerGitHub implements GhApi {
   scopes: FakeScope[] = []
   orgs: { login: string; role: 'admin' | 'member' }[] = []
-  repos: { full: string; admin: boolean; private?: boolean; workflows?: Record<string, string> }[] = []
+  repos: { full: string; admin: boolean; private?: boolean; workflows?: Record<string, string>; id?: number }[] = []
+  /** Former names of renamed repositories (lower-case owner/name to the current full name). GitHub redirects them, so every request under an old name is answered as the current repository. */
+  aliases: Record<string, string> = {}
   latest = { version: '2.321.0', checksums: { 'linux-x64': 'a'.repeat(64), 'win-x64': 'b'.repeat(64), 'osx-arm64': 'c'.repeat(64) } as Record<string, string> }
   downloads: boolean | 'forbidden' = true
   auth: AuthState = { state: 'ok', login: 'me', scopes: ['repo', 'admin:org'], scopesKnown: true, canWrite: true, plan: null }
@@ -207,6 +212,9 @@ export class FakeRunnerGitHub implements GhApi {
   nextId = 900
   authState = async () => this.auth
 
+  private repoJson(r: { full: string; admin: boolean; private?: boolean; id?: number }) {
+    return { ...(r.id ? { id: r.id } : {}), full_name: r.full, private: !!r.private, archived: false, default_branch: 'main', owner: { login: r.full.split('/')[0], type: 'User' }, permissions: { admin: r.admin, push: true } }
+  }
   scope(kind: 'repo' | 'org', key: string) { return this.scopes.find(s => s.kind === kind && s.key.toLowerCase() === key.toLowerCase()) }
   count(method: string, re: RegExp) { return this.calls.filter(c => c.method === method && re.test(c.path)).length }
 
@@ -225,13 +233,16 @@ export class FakeRunnerGitHub implements GhApi {
     const mem = /^\/user\/memberships\/orgs\/([^/]+)$/.exec(p)
     if (mem) { const o = this.orgs.find(x => x.login.toLowerCase() === decodeURIComponent(mem[1]).toLowerCase()); return o ? json(200, { role: o.role }) : err(404, 'Not Found') }
     if (p === '/repos/actions/runner/releases/latest') return json(200, { tag_name: `v${this.latest.version}`, html_url: `https://github.com/actions/runner/releases/tag/v${this.latest.version}`, body: Object.entries(this.latest.checksums).map(([k, v]) => `<!-- BEGIN SHA ${k} -->${v}<!-- END SHA ${k} -->`).join('\n') })
+    const byId = /^\/repositories\/(\d+)$/.exec(p)
+    if (byId) { const r = this.repos.find(x => x.id === Number(byId[1])); return r ? json(200, this.repoJson(r)) : err(404, 'Not Found') }
     const m = /^\/(repos\/([^/]+\/[^/]+)|orgs\/([^/]+))(\/.*)?$/.exec(p)
     if (!m) return err(404, 'Not Found')
     const kind = m[2] ? 'repo' : 'org'
-    const key = decodeURIComponent(m[2] ?? m[3])
+    const asked = decodeURIComponent(m[2] ?? m[3])
+    const key = kind === 'repo' ? this.aliases[asked.toLowerCase()] ?? asked : asked
     const rest = m[4] ?? ''
     const sc = this.scope(kind, key)
-    if (kind === 'repo' && rest === '') { const r = this.repos.find(x => x.full.toLowerCase() === key.toLowerCase()); return r ? json(200, { full_name: r.full, private: !!r.private, archived: false, default_branch: 'main', owner: { login: r.full.split('/')[0], type: 'User' }, permissions: { admin: r.admin, push: true } }) : err(404, 'Not Found') }
+    if (kind === 'repo' && rest === '') { const r = this.repos.find(x => x.full.toLowerCase() === key.toLowerCase()); return r ? json(200, this.repoJson(r)) : err(404, 'Not Found') }
     if (kind === 'repo' && rest.startsWith('/git/trees/')) { const r = this.repos.find(x => x.full.toLowerCase() === key.toLowerCase()); return r ? json(200, { sha: 't', tree: Object.entries(r.workflows ?? {}).map(([path, text]) => ({ type: 'blob', path, size: text.length })) }) : err(404, 'Not Found') }
     if (kind === 'repo' && rest.startsWith('/contents/')) { const r = this.repos.find(x => x.full.toLowerCase() === key.toLowerCase()); const t = r?.workflows?.[decodeURIComponent(rest.slice('/contents/'.length))]; return t === undefined ? err(404, 'Not Found') : { status: 200, headers: { 'content-type': 'text/plain' }, body: t } }
     if (!sc) return err(404, 'Not Found')

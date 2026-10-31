@@ -58,6 +58,9 @@ export function isSafeBranchName(name: string): boolean {
 export class Git {
   constructor(private readonly git: GitRun = defaultGitRun) {}
 
+  /** Runs a read-only Git command for callers that need facts GitManager's own operations do not expose (the deletion preview). */
+  exec(loc: Location, args: string[], timeoutMs = 20_000): Promise<ExecResult> { return this.git(loc, args, timeoutMs) }
+
   async verifyRepo(loc: Location): Promise<Result<void>> {
     const r = await this.git(loc, ['rev-parse', '--is-inside-work-tree'], 20_000)
     if (r.code === 0 && r.stdout.trim() === 'true') return ok(undefined)
