@@ -4,7 +4,11 @@ import { describe, expect, it } from 'vitest'
 import { dedupe, dirFromServiceBinary, discoverOnHost, inspectOne, launchdService, parsePosixScan, parseRunnerFile, parseScQc, parseScQuery, parseServiceFile, recordToLocal, systemdService, versionFromText, windowsService } from '../../src/core/runners/discovery.js'
 import { NativeShell, WslShell, probeHost, SshShell, posixJoin, windowsElevatedSpec, parseSshConfig } from '../../src/core/runners/hosts.js'
 import type { ExecSpec } from '../../src/core/exec.js'
+import { hostname } from 'node:os'
 import { tempDir } from '../helpers.js'
+import { archFromNode } from '../../src/core/runners/model.js'
+
+const WIN = process.platform === 'win32'
 import { FakeShell } from './fakes.js'
 
 const RUNNER_JSON = (over: Record<string, unknown> = {}) => JSON.stringify({ agentId: 42, agentName: 'build-box', poolId: 1, poolName: 'Default', ephemeral: false, serverUrl: 'https://pipelinesghubeus2.actions.githubusercontent.com/x/', gitHubUrl: 'https://github.com/acme/app', workFolder: '_work', disableUpdate: false, ...over }, null, 2)
@@ -48,7 +52,19 @@ describe('runner metadata files', () => {
   })
 })
 
-describe('native Linux discovery (real sh, temporary folders)', () => {
+describe('probing this computer', () => {
+  it('reports the real system, architecture and machine name of the host it runs on', async () => {
+    const probe = await probeHost(new NativeShell())
+    expect(probe.reachable).toBe(true)
+    expect(probe.os).toBe(WIN ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux')
+    expect(probe.arch).toBe(archFromNode(process.arch))
+    expect(probe.machine).toBe(hostname())
+    if (WIN) expect(probe.systemd).toBe(false)
+  })
+})
+
+// The POSIX inspection is one real sh run (find, base64, /proc); it needs a POSIX host. Windows has its own real-file-system run below.
+describe.runIf(!WIN)('native POSIX discovery (real sh, temporary folders)', () => {
   it('finds registered, service-less and partial installations by their metadata, never by folder name, and reads the version', async () => {
     const t = tempDir()
     try {
@@ -97,6 +113,62 @@ describe('native Linux discovery (real sh, temporary folders)', () => {
       const before = readdirSync(dir).map(f => [f, statSync(join(dir, f)).mtimeMs])
       const shell = new NativeShell({ os: 'linux' })
       await discoverOnHost(shell, await probeHost(shell), { defaultRoots: [], roots: [{ id: 'a', host: { kind: 'native' }, path: join(t.dir, 'opt') }] })
+      expect(readdirSync(dir).map(f => [f, statSync(join(dir, f)).mtimeMs])).toEqual(before)
+    } finally { t.cleanup() }
+  })
+})
+
+/** A realistic Windows installation on disk: metadata with a BOM, config.cmd, a listener stub that cannot run (so the version comes from _diag), a recorded service name. */
+function writeWindowsInstall(dir: string, o: { runner?: boolean; service?: string; creds?: boolean; diagVersion?: string } = {}) {
+  mkdirSync(join(dir, 'bin'), { recursive: true }); mkdirSync(join(dir, '_diag'), { recursive: true })
+  if (o.runner !== false) writeFileSync(join(dir, '.runner'), '\uFEFF' + RUNNER_JSON({ agentName: 'win-box' }))
+  if (o.service) writeFileSync(join(dir, '.service'), o.service)
+  if (o.creds !== false) writeFileSync(join(dir, '.credentials'), '{"scheme":"OAuth"}')
+  writeFileSync(join(dir, 'config.cmd'), '@echo off\r\n"%~dp0bin\\Runner.Listener.exe" configure %*\r\n')
+  writeFileSync(join(dir, 'bin', 'Runner.Listener.exe'), 'not a real executable')
+  if (o.diagVersion) writeFileSync(join(dir, '_diag', 'Runner_20261030-100001-utc.log'), `[2026-10-30 10:00:01Z INFO Listener] Version: ${o.diagVersion}\r\n`)
+}
+
+// The Windows inspection uses the real file system, sc.exe and PowerShell; it needs a Windows host (CI runs it on windows-latest).
+describe.runIf(WIN)('native Windows discovery (real file system, sc.exe and PowerShell)', () => {
+  it('finds registered and partial installations by their metadata, never by folder name, with the version from the diagnostic log', async () => {
+    const t = tempDir()
+    try {
+      writeWindowsInstall(join(t.dir, 'actions-runner'), { service: 'actions.runner.acme-app.win-box', diagVersion: '2.319.1' })
+      writeWindowsInstall(join(t.dir, 'runners', 'second'), { runner: false })
+      writeWindowsInstall(join(t.dir, 'runners', 'nocreds'), { creds: false })
+      mkdirSync(join(t.dir, 'actions-runner-not-really'), { recursive: true }); writeFileSync(join(t.dir, 'actions-runner-not-really', 'README'), 'nothing')
+      const shell = new NativeShell()
+      const probe = await probeHost(shell)
+      expect(probe.os).toBe('windows')
+      const r = await discoverOnHost(shell, probe, { defaultRoots: [], roots: [{ id: 'a', host: { kind: 'native' }, path: t.dir }] })
+      expect(r.result.status).toBe('ok')
+      // only what lies under the temporary root is asserted; a machine may have real runner services of its own
+      const mine = r.installs.filter(i => i.path.toLowerCase().startsWith(t.dir.toLowerCase()))
+      const byName = Object.fromEntries(mine.map(i => [i.path.split('\\').pop()!, i]))
+      expect(Object.keys(byName).sort()).toEqual(['actions-runner', 'nocreds', 'second'])
+      expect(byName['actions-runner']).toMatchObject({ os: 'windows', arch: archFromNode(process.arch), machine: hostname(), configured: true, agentId: 42, agentName: 'win-box', scope: { kind: 'repo', owner: 'acme', repo: 'app' }, version: '2.319.1', versionSource: 'diag', hasCredentials: true, partial: false })
+      expect(byName['actions-runner'].service).toMatchObject({ kind: 'windows-service', name: 'actions.runner.acme-app.win-box', state: 'not-installed' })
+      expect(byName['actions-runner'].process).toMatchObject({ running: false, pids: [] })
+      expect(byName['actions-runner'].key).toBe(`win:${join(t.dir, 'actions-runner').toLowerCase()}`)
+      expect(byName.second).toMatchObject({ configured: false, partial: true, agentId: null, service: { kind: 'none' } })
+      expect(byName.nocreds.warnings.join(' ')).toMatch(/credentials file is missing/)
+      const one = await inspectOne(shell, probe, join(t.dir, 'actions-runner'))
+      expect(one?.agentId).toBe(42)
+      expect(await inspectOne(shell, probe, join(t.dir, 'actions-runner-not-really'))).toBeNull()
+    } finally { t.cleanup() }
+  })
+
+  it('reports a missing root and keeps going, and leaves every file of an installation untouched', async () => {
+    const t = tempDir()
+    try {
+      const dir = join(t.dir, 'r', 'a'); writeWindowsInstall(dir, { service: 'actions.runner.acme-app.win-box' })
+      const { statSync, readdirSync } = await import('node:fs')
+      const before = readdirSync(dir).map(f => [f, statSync(join(dir, f)).mtimeMs])
+      const shell = new NativeShell()
+      const r = await discoverOnHost(shell, await probeHost(shell), { defaultRoots: [], roots: [{ id: 'x', host: { kind: 'native' }, path: join(t.dir, 'missing') }, { id: 'y', host: { kind: 'native' }, path: join(t.dir, 'r') }] })
+      expect(r.result.status).toBe('ok')
+      expect(r.installs.some(i => i.path.toLowerCase() === dir.toLowerCase())).toBe(true)
       expect(readdirSync(dir).map(f => [f, statSync(join(dir, f)).mtimeMs])).toEqual(before)
     } finally { t.cleanup() }
   })

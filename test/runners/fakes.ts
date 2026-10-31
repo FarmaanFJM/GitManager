@@ -1,5 +1,6 @@
 // Test doubles for the Runners tool: an in-memory host (file system, services, processes, every command recorded) and an
 // in-memory GitHub that speaks the runner endpoints, with failure injection. Nothing here touches the real machine.
+import { existsSync } from 'node:fs'
 import type { AuthState } from '../../src/shared/storage.js'
 import type { RunnerHost, RunnerOs } from '../../src/shared/runners.js'
 import type { ExecResult } from '../../src/core/exec.js'
@@ -124,7 +125,8 @@ export class FakeShell implements HostShell {
         if (args[0] === '--version') return ok('tar (GNU tar) 1.35')
         const dir = args[args.indexOf('-C') + 1]
         const pkg = args[args.indexOf('-xzf') + 1]
-        if (!this.files.has(pkg) && !pkg.startsWith('/tmp')) return ok('', 2, `tar: ${pkg}: Cannot open: No such file`)
+        // the archive is either a file the test put on the fake host, or a real temporary file the installer downloaded (any platform's temp folder)
+        if (!this.files.has(pkg) && !existsSync(pkg)) return ok('', 2, `tar: ${pkg}: Cannot open: No such file`)
         for (const f of ['config.sh', 'svc.sh', 'run.sh', 'bin/installdependencies.sh']) this.mkfile(`${dir}/${f}`, '#!/bin/sh')
         this.mkfile(`${dir}/bin/Runner.Listener`, `version=${this.packageVersion}`)
         this.mkdir(`${dir}/externals`)
