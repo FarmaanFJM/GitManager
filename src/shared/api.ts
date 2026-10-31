@@ -1,7 +1,7 @@
 // The complete surface the renderer can reach, exposed by the preload script as window.gitmanager.
 // Every call is a request to the main process, which validates the arguments. Type-only module.
 import type {
-  Branch, BranchDetail, BranchOverview, Commit, Comparison, DiscoveredRepo, DiscoveryStatus, IgnoredRepo, Location, LogBatch, LogLine,
+  Branch, BranchDetail, BranchOverview, Commit, Comparison, DeleteResult, DeletionReport, DiscoveredRepo, DiscoveryStatus, IgnoredRepo, Location, LogBatch, LogLine,
   Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, Root, ServiceStatus, Settings, StartupState,
 } from './types.js'
 import type { ArtifactRef, AuditView, AuthState, CleanupPlan, OpenTarget, OperationResult, StorageSettings, StorageState } from './storage.js'
@@ -49,6 +49,10 @@ export interface GitManagerApi {
   pickFolder(): Promise<string | null>
   addRepo(input: string, distro?: string): Promise<Result<{ repo: Repo; existed: boolean }>>
   removeRepo(repoId: string): Promise<Result<void>>
+  /** Everything the confirmation dialog shows before a repository's folder may be deleted. Read-only. */
+  deletionPreview(repoId: string): Promise<Result<DeletionReport>>
+  /** Deletes the local folder (never anything on GitHub). confirmPath must equal the repository path exactly; permanent needs confirmPermanent. */
+  deleteRepoFolder(repoId: string, opts: { confirmPath: string; permanent?: boolean; confirmPermanent?: boolean }): Promise<Result<DeleteResult>>
   selectRepo(repoId: string | null): Promise<void>
   status(repoId: string): Promise<Result<RepoStatus>>
   checkRemote(repoId: string): Promise<Result<RemoteCheck | null>>
@@ -133,6 +137,11 @@ export interface GitManagerApi {
   runnersInstall(planId: string, confirm: boolean): Promise<Result<InstallJob>>
   runnersCancelInstall(): Promise<boolean>
   runnersAction(key: string, action: RunnerAction, opts: ActionOptions): Promise<Result<ActionResult>>
+  /** Hides an orphaned installation from the active inventory (persistent, reversible, touches no files). */
+  runnersRetire(key: string): Promise<Result<{ retired: true }>>
+  runnersRestore(key: string): Promise<Result<{ restored: true }>>
+  /** Deletes the files of a retired installation after fresh verification. Refused unless confirmPath equals the installation path exactly. */
+  runnersCleanup(key: string, confirmPath: string): Promise<Result<ActionResult>>
   runnersDiagnostics(key: string): Promise<RunnerDiagnostics>
   runnersRunsOn(key: string): Promise<Result<RunsOnExample>>
   runnersWorkflows(repo: string): Promise<Result<WorkflowLabelReport>>
@@ -143,7 +152,7 @@ export interface GitManagerApi {
 
 /** Method names, in one place, so the preload, the main process and a test can be checked against each other. */
 export const API_METHODS = [
-  'platform', 'state', 'pickFolder', 'addRepo', 'removeRepo', 'selectRepo', 'status', 'checkRemote', 'fetch', 'pull', 'branches',
+  'platform', 'state', 'pickFolder', 'addRepo', 'removeRepo', 'deletionPreview', 'deleteRepoFolder', 'selectRepo', 'status', 'checkRemote', 'fetch', 'pull', 'branches',
   'switchBranch', 'trackBranch', 'log', 'compare', 'openFolder', 'openEditor', 'openUrl', 'wslDistros', 'addRoot', 'removeRoot',
   'scanRoot', 'addRepos', 'draftProfile', 'saveProfile', 'removeProfile', 'selectProfile', 'previewLaunch', 'trustProfile',
   'startServices', 'stopServices', 'restartService', 'logs', 'clearLogs', 'saveSettings', 'startupState',
@@ -151,5 +160,5 @@ export const API_METHODS = [
   'storageState', 'storageAuth', 'storageScan', 'storageCancel', 'storageCandidates', 'storagePreview', 'storageDelete', 'storagePin', 'storageProtectRepo',
   'storageSavePolicy', 'storageSaveSettings', 'storageRunAutomation', 'storageDismissRecommendation', 'storageAudit', 'storageOpen',
   'runnersState', 'runnersAuth', 'runnersScan', 'runnersCancel', 'runnersRefresh', 'runnersSaveSettings', 'runnersAddRoot', 'runnersRemoveRoot', 'runnersSshHosts', 'runnersAllowSsh', 'runnersProbe',
-  'runnersRepos', 'runnersOrgs', 'runnersGroups', 'runnersPlan', 'runnersInstall', 'runnersCancelInstall', 'runnersAction', 'runnersDiagnostics', 'runnersRunsOn', 'runnersWorkflows', 'runnersOpen',
+  'runnersRepos', 'runnersOrgs', 'runnersGroups', 'runnersPlan', 'runnersInstall', 'runnersCancelInstall', 'runnersAction', 'runnersRetire', 'runnersRestore', 'runnersCleanup', 'runnersDiagnostics', 'runnersRunsOn', 'runnersWorkflows', 'runnersOpen',
 ] as const satisfies readonly Exclude<keyof GitManagerApi, 'on'>[]

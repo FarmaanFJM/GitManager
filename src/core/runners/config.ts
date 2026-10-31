@@ -1,12 +1,12 @@
 // The runners section of gitmanager.json: settings, search roots and the non-sensitive memory of known installations.
 // Validated on load like every other section; anything invalid falls back to its default instead of failing the load.
-import type { KnownInstallation, RunnerHost, RunnerRoot, RunnersConfig, RunnersSettings } from '../../shared/runners.js'
+import type { KnownInstallation, RetiredInstallation, RunnerHost, RunnerRoot, RunnersConfig, RunnersSettings } from '../../shared/runners.js'
 import { newIdLike } from './ids.js'
 import { installKey, parseScope, validOwner, validRepoFull } from './model.js'
 
 export const DEFAULT_RUNNER_SETTINGS: RunnersSettings = { autoDiscover: true, githubAtStartup: false, roots: [], orgs: [], repos: [], sshHosts: [], refreshMinutes: 5 }
 
-export const emptyRunnersConfig = (): RunnersConfig => ({ settings: { ...DEFAULT_RUNNER_SETTINGS, roots: [], orgs: [], repos: [], sshHosts: [] }, known: [] })
+export const emptyRunnersConfig = (): RunnersConfig => ({ settings: { ...DEFAULT_RUNNER_SETTINGS, roots: [], orgs: [], repos: [], sshHosts: [] }, known: [], retired: [] })
 
 const DISTRO = /^[A-Za-z0-9._-]{1,64}$/
 const SSH = /^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$/
@@ -65,6 +65,20 @@ export function sanitizeRunnersConfig(raw: unknown): RunnersConfig {
         key, host, path: x.path.trim(), name: typeof x.name === 'string' ? x.name.slice(0, 100) : null, scope: parseScope(x.scope),
         agentId: typeof x.agentId === 'number' && Number.isSafeInteger(x.agentId) && x.agentId > 0 ? x.agentId : null, at: typeof x.at === 'string' ? x.at.slice(0, 40) : '',
       } satisfies KnownInstallation)
+    }
+  }
+  if (Array.isArray(r.retired)) {
+    const seen = new Set<string>()
+    for (const x of r.retired.slice(0, 200) as Record<string, unknown>[]) {
+      const host = parseHost(x?.host)
+      if (!host || !PATH_OK(x.path)) continue
+      const key = installKey(host, x.path.trim())
+      if (seen.has(key)) continue
+      seen.add(key)
+      c.retired.push({
+        key, host, path: x.path.trim(), name: typeof x.name === 'string' ? x.name.slice(0, 100) : null, scope: parseScope(x.scope),
+        agentId: typeof x.agentId === 'number' && Number.isSafeInteger(x.agentId) && x.agentId > 0 ? x.agentId : null, retiredAt: typeof x.retiredAt === 'string' ? x.retiredAt.slice(0, 40) : '',
+      } satisfies RetiredInstallation)
     }
   }
   return c

@@ -131,6 +131,23 @@ export class Store {
     this.save()
   }
 
+  /**
+   * Forgets a repository whose folder was deleted, with its profiles and cached choices, and any other registered repository that
+   * lived inside that folder. Unlike removeRepo it does not add an "ignored" entry: the folder is gone, so discovery has nothing to find,
+   * and a folder restored from the trash later is discovered like any other.
+   */
+  forgetDeleted(id: string, alsoIds: string[] = []) {
+    for (const rid of [id, ...alsoIds]) {
+      delete this.data.compareBase[rid]
+      delete this.data.ui.selectedProfile[rid]
+      if (this.data.ui.selectedRepoId === rid) this.data.ui.selectedRepoId = null
+    }
+    const gone = new Set([id, ...alsoIds])
+    this.data.repos = this.data.repos.filter(r => !gone.has(r.id))
+    this.data.profiles = this.data.profiles.filter(p => !gone.has(p.repoId))
+    this.save()
+  }
+
   upsertProfile(p: Profile) {
     const i = this.data.profiles.findIndex(x => x.id === p.id)
     if (i >= 0) this.data.profiles[i] = p

@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path'
 import type { Repo } from '../../shared/types.js'
 import type {
   ActionOptions, ActionResult, GitHubOrgChoice, GitHubRepoChoice, GitHubRunner, HostProbe, HostResult, InstallJob, InstallPlan, LatestRelease, LocalRunner, Runner, RunnerAction, RunnerDiagnostics,
-  RunnerGroupInfo, RunnerHost, RunnerRoot, RunnersConfig, RunnersInventory, RunnersOpenTarget, RunnersScan, RunnersState, RunnerScope, RunsOnExample, ScopeResult, SshConfigHost, WorkflowLabelReport,
+  RetiredRunner, RunnerGroupInfo, RunnerHost, RunnerRoot, RunnersConfig, RunnersInventory, RunnersOpenTarget, RunnersScan, RunnersState, RunnerScope, RunsOnExample, ScopeResult, SshConfigHost, WorkflowLabelReport,
 } from '../../shared/runners.js'
 import type { AuthState } from '../../shared/storage.js'
 import { listWslDistros, type HostOs } from '../exec.js'
@@ -20,7 +20,7 @@ import { sanitizeRunnerSettings } from './config.js'
 import { newIdLike } from './ids.js'
 import { newJob, planInstall, runInstall, validateRequest, type Downloader } from './install.js'
 import { collectDiagnostics, performAction } from './lifecycle.js'
-import { hostKey, hostLabel, installKey, parseScope, repoFromRemote, runsOnExample, sameHost, sameScope, scopeKey, scopeLabel, scopeSettingsUrl, scopeUrl, summarize, reconcile, validOwner, validRepoFull } from './model.js'
+import { cleanupCheck, dedupeGitHubRunners, hostKey, hostLabel, installKey, parseScope, repoFromRemote, retireCapability, runsOnExample, sameHost, scopeKey, scopeLabel, scopeSettingsUrl, scopeUrl, summarize, reconcile, validOwner, validRepoFull } from './model.js'
 import { buildReport } from './workflows.js'
 
 export type ManagerDeps = {
@@ -56,7 +56,13 @@ type Persisted = {
   recentJobs: InstallJob[]
   /** What the last GitHub scan left out on purpose (too many repositories), so the inventory never claims completeness. */
   scanNotes: string[]
+  /** What GitHub said about each repository: its immutable id and every name it was read under. Lets a renamed repository stay one scope. */
+  repos: RepoIdentity[]
 }
+
+/** A repository as GitHub knows it. `names` are lower-cased owner/name strings that resolve to this id (the current name and former ones). */
+export type RepoIdentity = { id: number; fullName: string; names: string[]; checkedAt: string }
+const IDENTITY_TTL_MS = 6 * 3600_000
 
 export type Res<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string; detail?: string } }
 const okRes = <T>(value: T): Res<T> => ({ ok: true, value })
@@ -93,12 +99,12 @@ export class RunnerManager extends EventEmitter {
   /* ------------------------------------------------------------ persistence */
 
   private load(): Persisted {
-    const empty: Persisted = { locals: [], githubs: [], hosts: [], scopes: [], localScannedAt: null, githubScannedAt: null, latest: null, recentJobs: [], scanNotes: [] }
+    const empty: Persisted = { locals: [], githubs: [], hosts: [], scopes: [], localScannedAt: null, githubScannedAt: null, latest: null, recentJobs: [], scanNotes: [], repos: [] }
     try {
       if (!existsSync(this.stateFile)) return empty
       const raw = JSON.parse(readFileSync(this.stateFile, 'utf8')) as Partial<Persisted>
       const arr = <T>(x: unknown): T[] => (Array.isArray(x) ? (x as T[]) : [])
-      return { ...empty, ...raw, locals: arr(raw.locals), githubs: arr(raw.githubs), hosts: arr(raw.hosts), scopes: arr(raw.scopes), recentJobs: arr<InstallJob>(raw.recentJobs).slice(0, 5), scanNotes: arr<string>(raw.scanNotes), latest: raw.latest && typeof raw.latest.version === 'string' ? raw.latest : null }
+      return { ...empty, ...raw, locals: arr(raw.locals), githubs: arr(raw.githubs), hosts: arr(raw.hosts), scopes: arr(raw.scopes), recentJobs: arr<InstallJob>(raw.recentJobs).slice(0, 5), scanNotes: arr<string>(raw.scanNotes), repos: arr<RepoIdentity>(raw.repos).filter(r => r && Number.isSafeInteger(r.id) && typeof r.fullName === 'string' && Array.isArray(r.names)), latest: raw.latest && typeof raw.latest.version === 'string' ? raw.latest : null }
     } catch {
       try { renameSync(this.stateFile, `${this.stateFile}.corrupt-${this.now()}`) } catch { /* start empty */ }
       return empty
@@ -125,17 +131,56 @@ export class RunnerManager extends EventEmitter {
 
   /* ------------------------------------------------------------ state */
 
-  inventory(): RunnersInventory {
+  /** A scope in its canonical form: the repository's current name and GitHub's id, whichever name it was reached by. */
+  canonicalScope = (scope: RunnerScope): RunnerScope => {
+    if (scope.kind !== 'repo') return scope
+    const name = `${scope.owner}/${scope.repo}`.toLowerCase()
+    const id = scope.repoId ?? this.p.repos.find(r => r.names.includes(name))?.id
+    const ident = id ? this.p.repos.find(r => r.id === id) : undefined
+    if (!ident) return scope
+    const [owner, repo] = ident.fullName.split('/')
+    return { kind: 'repo', owner, repo, repoId: ident.id }
+  }
+  private sameScope = (a: RunnerScope, b: RunnerScope) => scopeKey(this.canonicalScope(a)) === scopeKey(this.canonicalScope(b))
+
+  /** Every reconciled row, retired installations included. */
+  private allRows(): { rows: Runner[]; fetched: Set<string> } {
     const okHosts = new Set(this.p.hosts.filter(h => h.status === 'ok').map(h => hostKey(h.host)))
-    const fetched = new Set(this.p.scopes.filter(s => s.status === 'ok').map(s => scopeKey(s.scope)))
-    const runners = reconcile(this.p.locals, this.p.githubs, { latestVersion: this.p.latest?.version ?? null, githubFetched: s => fetched.has(scopeKey(s)), hostReachable: h => okHosts.has(hostKey(h)) || !this.p.hosts.some(x => sameHost(x.host, h)) })
+    const fetched = new Set(this.p.scopes.filter(s => s.status === 'ok').map(s => scopeKey(this.canonicalScope(s.scope))))
+    const rows = reconcile(this.p.locals, this.p.githubs, { latestVersion: this.p.latest?.version ?? null, canonicalScope: this.canonicalScope, githubFetched: s => fetched.has(scopeKey(this.canonicalScope(s))), hostReachable: h => okHosts.has(hostKey(h)) || !this.p.hosts.some(x => sameHost(x.host, h)) })
+    return { rows, fetched }
+  }
+
+  private cleanupFor(r: Runner, fetched: Set<string>) {
+    const l = r.local
+    const registrationGone = !!l && (!l.configured || (!!l.scope && !r.github && fetched.has(scopeKey(this.canonicalScope(l.scope)))))
+    return cleanupCheck(r, { others: this.p.locals.filter(x => x.key !== l?.key), registrationGone })
+  }
+
+  inventory(): RunnersInventory {
+    const { rows, fetched } = this.allRows()
+    const records = this.cfg().retired
+    const runners: Runner[] = []
+    const retired: RetiredRunner[] = []
+    for (const r of rows) {
+      // A retirement holds for this installation as long as it is still an orphan; one that came back to life is shown again.
+      const rec = r.local ? records.find(x => x.key === r.local!.key && x.agentId === r.local!.agentId) : undefined
+      if (rec && r.local && retireCapability(r.local, r.github).allowed) retired.push({ runner: r, retiredAt: rec.retiredAt, cleanup: this.cleanupFor(r, fetched) })
+      else runners.push(rec ? { ...r, notices: [...r.notices, 'This installation was retired earlier, but it is active again, so it is shown in the inventory.'] } : r)
+    }
     const limitations: string[] = []
-    for (const s of this.p.scopes) if (s.status !== 'ok' && s.status !== 'skipped') limitations.push(`${scopeLabel(s.scope)}: ${s.message ?? s.status}`)
+    // scopes listed once however many names a repository had
+    const scopes = new Map<string, ScopeResult>()
+    for (const s of this.p.scopes) {
+      const scope = this.canonicalScope(s.scope), k = scopeKey(scope), prev = scopes.get(k)
+      if (!prev || (prev.status !== 'ok' && s.status === 'ok')) scopes.set(k, { ...s, scope })
+    }
+    for (const s of scopes.values()) if (s.status !== 'ok' && s.status !== 'skipped') limitations.push(`${scopeLabel(s.scope)}: ${s.message ?? s.status}`)
     for (const h of this.p.hosts) if (h.status !== 'ok') limitations.push(`${h.label}: ${h.message ?? h.status}`)
     if (!this.p.githubScannedAt) limitations.push('GitHub has not been read yet: online, busy and label information is unknown until a scan with GitHub access.')
     if (this.p.scopes.some(s => s.truncated)) limitations.push('Some scopes have more runners than were read.')
     limitations.push(...this.p.scanNotes)
-    return { runners, summary: summarize(runners), hosts: this.p.hosts, scopes: this.p.scopes, scannedAt: this.p.localScannedAt ?? this.p.githubScannedAt, localScannedAt: this.p.localScannedAt, githubScannedAt: this.p.githubScannedAt, limitations, latest: this.p.latest ? { version: this.p.latest.version, checkedAt: this.p.latest.checkedAt, url: this.p.latest.url } : null }
+    return { runners, retired, summary: summarize(runners, retired.length), hosts: this.p.hosts, scopes: [...scopes.values()], scannedAt: this.p.localScannedAt ?? this.p.githubScannedAt, localScannedAt: this.p.localScannedAt, githubScannedAt: this.p.githubScannedAt, limitations, latest: this.p.latest ? { version: this.p.latest.version, checkedAt: this.p.latest.checkedAt, url: this.p.latest.url } : null }
   }
 
   async hostsCatalog(): Promise<RunnersState['hosts']> {
@@ -259,7 +304,43 @@ export class RunnerManager extends EventEmitter {
       for (const r of extra.slice(0, ADMIN_REPO_LIMIT)) add({ kind: 'repo', owner: r.fullName.split('/')[0], repo: r.fullName.split('/')[1] })
       if (extra.length > ADMIN_REPO_LIMIT) notes.push(`${extra.length - ADMIN_REPO_LIMIT} more repositories you administer were not read (the scan reads at most ${ADMIN_REPO_LIMIT} beyond those registered here); add the ones that matter under Discovery.`)
     } catch { notes.push('The repositories you administer could not be listed; only registered repositories and configured scopes were read.') }
-    return { scopes: [...map.values()], notes }
+    // A repository renamed on GitHub is reached by several names (the old one in a runner's .runner file or a git remote, the new one
+    // in the API). Resolve each to GitHub's repository id and read the repository once, under its current name.
+    await this.resolveRepoIdentities([...map.values()])
+    const canonical = new Map<string, RunnerScope>()
+    for (const sc of map.values()) { const c = this.canonicalScope(sc); if (!canonical.has(scopeKey(c))) canonical.set(scopeKey(c), c) }
+    return { scopes: [...canonical.values()], notes }
+  }
+
+  /**
+   * Learns the immutable id and the current name of every repository scope. A name seen before is refreshed through its id
+   * (/repositories/{id} never redirects), a new name through /repos/{owner}/{name}. A lookup that fails keeps what was known; a
+   * repository that cannot be identified is simply keyed by its name.
+   */
+  private async resolveRepoIdentities(scopes: RunnerScope[]) {
+    const now = this.now()
+    const names = [...new Set(scopes.filter((x): x is Extract<RunnerScope, { kind: 'repo' }> => x.kind === 'repo').map(x => `${x.owner}/${x.repo}`))]
+    let changed = false
+    for (const full of names) {
+      if (this.signal.cancelled) break
+      const lower = full.toLowerCase()
+      const known = this.p.repos.find(r => r.names.includes(lower))
+      if (known && now - Date.parse(known.checkedAt) < IDENTITY_TTL_MS) continue
+      try {
+        const ident = await this.github.repoIdentity(full, known?.id ?? null)
+        if (!ident) continue
+        const at = new Date(now).toISOString()
+        const existing = this.p.repos.find(r => r.id === ident.id)
+        const nameSet = new Set([...(existing?.names ?? []), ...(known?.names ?? []), lower, ident.fullName.toLowerCase()])
+        const rec: RepoIdentity = { id: ident.id, fullName: ident.fullName, names: [...nameSet], checkedAt: at }
+        this.p.repos = [...this.p.repos.filter(r => r.id !== ident.id && r !== known), rec]
+        changed = true
+      } catch (e) {
+        if (e instanceof GhError && (e.kind === 'rate-limit' || e.kind === 'auth')) break
+        /* not visible with this sign-in: the repository stays keyed by name */
+      }
+    }
+    if (changed) this.p.repos = this.p.repos.slice(-300)
   }
 
   /** owner/name of the GitHub remotes of GitManager's repositories, read from each .git/config (no Git command, no network). */
@@ -316,12 +397,12 @@ export class RunnerManager extends EventEmitter {
       }
     }
     await Promise.all([worker(), worker(), worker()])
-    for (const s of scopes.slice(next)) if (!results.some(r => sameScope(r.scope, s))) results.push({ scope: s, status: 'skipped', message: stop ?? 'Cancelled before this scope was read.', count: 0, truncated: false, fetchedAt: null })
+    for (const s of scopes.slice(next)) if (!results.some(r => this.sameScope(r.scope, s))) results.push({ scope: s, status: 'skipped', message: stop ?? 'Cancelled before this scope was read.', count: 0, truncated: false, fetchedAt: null })
     if (!this.signal.cancelled) {
       // scopes that could not be read keep their previous records, so a transient failure does not empty the table silently
       const okKeys = new Set(results.filter(r => r.status === 'ok').map(r => scopeKey(r.scope)))
-      const kept = this.p.githubs.filter(g => !okKeys.has(scopeKey(g.scope)) && results.some(r => sameScope(r.scope, g.scope)))
-      this.p.githubs = [...githubs, ...kept]
+      const kept = this.p.githubs.filter(g => !okKeys.has(scopeKey(this.canonicalScope(g.scope))) && results.some(r => this.sameScope(r.scope, g.scope)))
+      this.p.githubs = dedupeGitHubRunners([...githubs, ...kept], this.canonicalScope)
       this.p.scopes = results
       this.p.scanNotes = notes
       this.p.githubScannedAt = new Date(this.now()).toISOString()
@@ -494,15 +575,18 @@ export class RunnerManager extends EventEmitter {
     return true
   }
 
-  private async refreshScope(scope: RunnerScope) {
+  /** Re-reads one scope (under its canonical name). Returns whether GitHub answered, so a caller never trusts a stale read. */
+  private async refreshScope(scopeIn: RunnerScope): Promise<boolean> {
+    const scope = this.canonicalScope(scopeIn)
     try {
       const r = await this.github.listRunners(scope)
-      this.p.githubs = [...this.p.githubs.filter(g => !sameScope(g.scope, scope)), ...r.runners]
+      this.p.githubs = dedupeGitHubRunners([...this.p.githubs.filter(g => !this.sameScope(g.scope, scope)), ...r.runners], this.canonicalScope)
       const at = new Date(this.now()).toISOString()
-      this.p.scopes = [...this.p.scopes.filter(s => !sameScope(s.scope, scope)), { scope, status: 'ok', message: null, count: r.runners.length, truncated: r.truncated, fetchedAt: at }]
+      this.p.scopes = [...this.p.scopes.filter(s => !this.sameScope(s.scope, scope)), { scope, status: 'ok', message: null, count: r.runners.length, truncated: r.truncated, fetchedAt: at }]
       this.p.githubScannedAt = at
       this.persist(); this.changed()
-    } catch { /* the next scan reports it */ }
+      return true
+    } catch { return false /* the next scan reports it */ }
   }
 
   /* ------------------------------------------------------------ actions */
@@ -532,10 +616,85 @@ export class RunnerManager extends EventEmitter {
     try {
       const r = await performAction(action, runner, opts, this.lifecycleDeps())
       if (r.ok && (action === 'unregister' || action === 'uninstall') && runner.scope) await this.refreshScope(runner.scope)
-      if (r.ok && action === 'uninstall' && runner.github && !runner.local) this.p.githubs = this.p.githubs.filter(g => g !== runner.github)
+      if (r.ok && action === 'uninstall' && runner.github && !runner.local) { const gone = runner.github; this.p.githubs = this.p.githubs.filter(g => !(g.id === gone.id && this.sameScope(g.scope, gone.scope))) }
       return okRes(r)
     } finally {
       this.busy.delete(lock); this.persist(); this.status(); this.changed()
+    }
+  }
+
+  /* ------------------------------------------------------------ retiring orphaned installations */
+
+  /**
+   * Hides an orphaned installation from the active inventory, persistently (gitmanager.json), without touching a file, a service,
+   * a credential or a registration. Refused for anything GitHub lists or anything running.
+   */
+  retire(key: string): Res<{ retired: true }> {
+    const row = this.allRows().rows.find(r => r.key === key)
+    if (!row) return fail('NOT_FOUND', 'That runner is no longer in the inventory.')
+    const l = row.local
+    if (!l) return fail('NOT_ORPHANED', row.capabilities.retire.reason ?? 'Only a local installation can be retired.')
+    const cap = retireCapability(l, row.github)
+    if (!cap.allowed) return fail('NOT_ORPHANED', cap.reason ?? 'This installation is active.')
+    const c = this.cfg()
+    c.retired = [...c.retired.filter(x => x.key !== l.key), { key: l.key, host: l.host, path: l.path, name: l.agentName, agentId: l.agentId, scope: l.scope ? this.canonicalScope(l.scope) : null, retiredAt: new Date(this.now()).toISOString() }].slice(-200)
+    this.d.saveConfig(); this.changed()
+    return okRes({ retired: true })
+  }
+
+  /** Shows a retired installation in the inventory again. */
+  restore(key: string): Res<{ restored: true }> {
+    const c = this.cfg()
+    if (!c.retired.some(x => x.key === key)) return fail('NOT_FOUND', 'That installation is not retired.')
+    c.retired = c.retired.filter(x => x.key !== key)
+    this.d.saveConfig(); this.changed()
+    return okRes({ restored: true })
+  }
+
+  /**
+   * Deletes the files of a retired installation, and only after everything is verified again from scratch: the folder is
+   * re-inspected, GitHub is re-read for its scope, and the path the caller confirmed must equal the installation path exactly.
+   * It never touches a registration, and refuses while anything runs from the folder, a service is installed, GitHub lists the
+   * registration, or the folder overlaps another installation (the working runner included).
+   */
+  async cleanupRetired(key: string, confirmPath: string): Promise<Res<ActionResult>> {
+    const rec = this.cfg().retired.find(x => x.key === key)
+    if (!rec) return fail('NOT_RETIRED', 'Only a retired installation can be cleaned up. Retire it first.')
+    const known = this.p.locals.find(l => l.key === key)
+    if (!known) return fail('NOT_FOUND', 'That installation is no longer in the inventory.')
+    if (typeof confirmPath !== 'string' || confirmPath !== known.path) return fail('CONFIRM_MISMATCH', `The confirmed path does not match. Nothing was deleted. The folder is ${known.path}.`)
+    if (this.busy.has(key)) return fail('BUSY', `${known.path} is busy with another operation (${this.busy.get(key)}).`)
+    if (this.job?.state === 'running' && this.job.runnerKey === key) return fail('BUSY', 'An installation is running in that directory.')
+    this.busy.set(key, 'uninstall'); this.status()
+    try {
+      const shell = this.shellFor(known.host)
+      const probe = await probeHost(shell)
+      if (!probe.reachable) return fail('UNREACHABLE', probe.message ?? 'The machine could not be reached.')
+      const fresh = await inspectOne(shell, probe, known.path).catch(() => null)
+      if (!fresh) {
+        // nothing there any more: forget it rather than delete anything
+        this.p.locals = this.p.locals.filter(l => l.key !== key)
+        const c = this.cfg(); c.retired = c.retired.filter(x => x.key !== key); c.known = c.known.filter(k => k.key !== key); this.d.saveConfig()
+        this.persist(); this.changed()
+        return okRes({ action: 'uninstall', ok: true, message: `${known.path} is no longer an installation; it was removed from the list and nothing was deleted.` })
+      }
+      this.p.locals = [...this.p.locals.filter(l => l.key !== key), fresh]
+      if (fresh.agentId !== rec.agentId) return fail('CHANGED', 'The installation was registered again since it was retired, so it is not the orphan that was retired. Nothing was deleted.')
+      if (fresh.configured) {
+        const auth = await this.refreshAuth()
+        if (auth.state !== 'ok' || !fresh.scope) return fail('UNVERIFIED', 'The registration could not be checked on GitHub (not signed in, or the registration URL is unreadable), so nothing was deleted.')
+        if (!(await this.refreshScope(fresh.scope))) return fail('UNVERIFIED', `GitHub could not be read for ${scopeLabel(this.canonicalScope(fresh.scope))}, so nothing was deleted.`)
+      }
+      const { rows, fetched } = this.allRows()
+      const row = rows.find(r => r.local?.key === key)
+      if (!row) return fail('NOT_FOUND', 'That installation is no longer in the inventory.')
+      const check = this.cleanupFor(row, fetched)
+      if (!check.allowed) return fail('REFUSED', `Nothing was deleted. ${check.reasons.join(' ')}`)
+      const r = await performAction('uninstall', row, { confirm: true }, this.lifecycleDeps())
+      if (r.ok) { const c = this.cfg(); c.retired = c.retired.filter(x => x.key !== key); this.d.saveConfig() }
+      return okRes(r)
+    } finally {
+      this.busy.delete(key); this.persist(); this.status(); this.changed()
     }
   }
 

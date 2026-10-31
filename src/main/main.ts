@@ -119,6 +119,7 @@ function start() {
       },
       openPath: p => shell.openPath(p),
       openExternal: u => shell.openExternal(u),
+      trashItem: p => shell.trashItem(p),
       settingsChanged: () => syncTray(),
       notify: (title, body) => { if (Notification.isSupported()) new Notification({ title, body, silent: true }).show() },
     }, { startup })

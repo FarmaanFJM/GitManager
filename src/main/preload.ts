@@ -5,7 +5,7 @@ import type { GitManagerApi } from '../shared/api.js'
 
 // Kept in sync with API_METHODS (test/ipc.test.ts checks this file against it).
 const METHODS = [
-  'platform', 'state', 'pickFolder', 'addRepo', 'removeRepo', 'selectRepo', 'status', 'checkRemote', 'fetch', 'pull', 'branches',
+  'platform', 'state', 'pickFolder', 'addRepo', 'removeRepo', 'deletionPreview', 'deleteRepoFolder', 'selectRepo', 'status', 'checkRemote', 'fetch', 'pull', 'branches',
   'switchBranch', 'trackBranch', 'log', 'compare', 'openFolder', 'openEditor', 'openUrl', 'wslDistros', 'addRoot', 'removeRoot',
   'scanRoot', 'addRepos', 'draftProfile', 'saveProfile', 'removeProfile', 'selectProfile', 'previewLaunch', 'trustProfile',
   'startServices', 'stopServices', 'restartService', 'logs', 'clearLogs', 'saveSettings', 'startupState',
@@ -13,7 +13,7 @@ const METHODS = [
   'storageState', 'storageAuth', 'storageScan', 'storageCancel', 'storageCandidates', 'storagePreview', 'storageDelete', 'storagePin', 'storageProtectRepo',
   'storageSavePolicy', 'storageSaveSettings', 'storageRunAutomation', 'storageDismissRecommendation', 'storageAudit', 'storageOpen',
   'runnersState', 'runnersAuth', 'runnersScan', 'runnersCancel', 'runnersRefresh', 'runnersSaveSettings', 'runnersAddRoot', 'runnersRemoveRoot', 'runnersSshHosts', 'runnersAllowSsh', 'runnersProbe',
-  'runnersRepos', 'runnersOrgs', 'runnersGroups', 'runnersPlan', 'runnersInstall', 'runnersCancelInstall', 'runnersAction', 'runnersDiagnostics', 'runnersRunsOn', 'runnersWorkflows', 'runnersOpen',
+  'runnersRepos', 'runnersOrgs', 'runnersGroups', 'runnersPlan', 'runnersInstall', 'runnersCancelInstall', 'runnersAction', 'runnersRetire', 'runnersRestore', 'runnersCleanup', 'runnersDiagnostics', 'runnersRunsOn', 'runnersWorkflows', 'runnersOpen',
 ]
 const EVENTS = ['service-status', 'service-logs', 'logs-cleared', 'discovery-status', 'repo-added', 'storage-status', 'storage-changed', 'runners-status', 'runners-changed']
 

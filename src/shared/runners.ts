@@ -5,8 +5,11 @@
 export type RunnerOs = 'windows' | 'linux' | 'macos' | 'unknown'
 export type RunnerArch = 'x64' | 'arm64' | 'arm' | 'unknown'
 
-/** The GitHub side a runner is registered with: one repository, or an organization. */
-export type RunnerScope = { kind: 'repo'; owner: string; repo: string } | { kind: 'org'; org: string }
+/**
+ * The GitHub side a runner is registered with: one repository, or an organization. A repository scope carries GitHub's
+ * immutable repository id once it is known (`repoId`), so every historical name of a renamed repository is one scope.
+ */
+export type RunnerScope = { kind: 'repo'; owner: string; repo: string; repoId?: number } | { kind: 'org'; org: string }
 
 /** Where an installation lives, as seen from this copy of GitManager. */
 export type RunnerHost =
@@ -97,6 +100,8 @@ export type RunnerCapabilities = {
   update: Capability
   unregister: Capability
   uninstall: Capability
+  /** Hide an orphaned installation from the active inventory (reversible, touches no files). */
+  retire: Capability
 }
 
 /** One row of the inventory: a GitHub record, a local installation, or both when reconciliation matched them. */
@@ -114,8 +119,10 @@ export type Runner = {
   github: GitHubRunner | null
   local: LocalRunner | null
   source: 'local' | 'github' | 'both'
-  /** Why the row needs a look: offline but service running, update available, partial installation, and so on. */
+  /** Genuine problems: a missing registration or credentials, a running service GitHub cannot see, a minor or major update missed. Only these count as "Needs attention". */
   attention: string[]
+  /** Ordinary information shown in the details view: WSL does not start with Windows, a patch update the runner applies itself, no service installed. */
+  notices: string[]
   capabilities: RunnerCapabilities
   /** At least one lifecycle action is possible from this GitManager. */
   manageable: boolean
@@ -127,15 +134,26 @@ export type ScopeResult = { scope: RunnerScope; status: ScopeStatus; message: st
 export type HostStatus = 'ok' | 'inaccessible' | 'skipped' | 'error' | 'cancelled'
 export type HostResult = { host: RunnerHost; label: string; status: HostStatus; message: string | null; found: number; roots: string[]; durationMs: number }
 
-export type RunnerSummary = { total: number; online: number; offline: number; busy: number; manageable: number; monitoringOnly: number; attention: number }
+export type RunnerSummary = { total: number; online: number; offline: number; busy: number; manageable: number; monitoringOnly: number; attention: number; /** Retired installations, not counted in any other figure. */ retired: number }
 
 export type ScanPhase = 'idle' | 'local' | 'github' | 'reconcile'
 export type RunnersScan = { running: boolean; phase: ScanPhase; current: string | null; startedAt: string | null; cancelled: boolean; localOnly: boolean }
 
 export type LatestRelease = { version: string; checkedAt: string; url: string }
 
+/** A local installation the user retired from the active inventory. Remembered across rescans and restarts. */
+export type RetiredInstallation = { key: string; host: RunnerHost; path: string; name: string | null; agentId: number | null; scope: RunnerScope | null; retiredAt: string }
+
+/** Whether the files of a retired installation may be removed now, with every reason when not. */
+export type CleanupCheck = { allowed: boolean; reasons: string[] }
+
+/** A retired installation as shown in the inventory: the row as last observed, when it was retired, and whether its files can be removed. */
+export type RetiredRunner = { runner: Runner; retiredAt: string; cleanup: CleanupCheck }
+
 export type RunnersInventory = {
   runners: Runner[]
+  /** Installations retired by the user and still orphaned. Excluded from `runners` and from every figure in `summary` except `summary.retired`. */
+  retired: RetiredRunner[]
   summary: RunnerSummary
   hosts: HostResult[]
   scopes: ScopeResult[]
@@ -169,7 +187,7 @@ export type RunnersSettings = {
 /** Non-sensitive memory of installations GitManager created or saw, so they reappear before the next scan. */
 export type KnownInstallation = { key: string; host: RunnerHost; path: string; name: string | null; scope: RunnerScope | null; agentId: number | null; at: string }
 
-export type RunnersConfig = { settings: RunnersSettings; known: KnownInstallation[] }
+export type RunnersConfig = { settings: RunnersSettings; known: KnownInstallation[]; retired: RetiredInstallation[] }
 
 /* ------------------------------------------------------------ installation */
 

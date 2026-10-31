@@ -151,6 +151,13 @@ export class RunnerGitHub {
     return { version, checkedAt: new Date().toISOString(), url: s(r.html_url) ?? `${RUNNER_RELEASES}/tag/${tag}`, checksums: parseReleaseChecksums(s(r.body) ?? '') }
   }
 
+  /** The immutable id and current full name of a repository, from any of its names (GitHub redirects a renamed repository) or from a remembered id. */
+  async repoIdentity(fullName: string, knownId: number | null = null): Promise<{ id: number; fullName: string } | null> {
+    if (!validRepoFull(fullName)) return null
+    const r = knownId ? await this.gh.getRepoById(knownId) : await this.gh.getRepo(fullName)
+    return r.id ? { id: r.id, fullName: r.fullName } : null
+  }
+
   async adminRepos(): Promise<RepoSummary[]> { return (await this.gh.listRepos()).filter(r => r.canAdmin) }
 
   async repo(fullName: string): Promise<RepoSummary> {

@@ -75,7 +75,7 @@ describe('persistence and migration', () => {
     const s = new Store(file)
     expect(s.loadWarning).toBeNull()
     expect(s.data.repos).toHaveLength(1); expect(s.data.ui.selectedRepoId).toBe('r1'); expect(s.data.storage.settings.scheduleEnabled).toBe(true)
-    expect(s.data.runners).toEqual({ settings: { autoDiscover: true, githubAtStartup: false, roots: [], orgs: [], repos: [], sshHosts: [], refreshMinutes: 5 }, known: [] })
+    expect(s.data.runners).toEqual({ settings: { autoDiscover: true, githubAtStartup: false, roots: [], orgs: [], repos: [], sshHosts: [], refreshMinutes: 5 }, known: [], retired: [] })
     const { data, dropped } = sanitize({ schemaVersion: 1, repos: [], runners: { settings: { autoDiscover: false, roots: [{ id: 'a', host: { kind: 'native' }, path: '/srv' }, { host: { kind: 'ssh', host: 'bad host' }, path: '/x' }, { host: { kind: 'native' }, path: '' }], orgs: ['ok', 'not ok'], sshHosts: ['nas'], refreshMinutes: -5 }, known: [{ key: 'k', host: { kind: 'wsl', distro: 'Ubuntu' }, path: '/home/me/r', name: 'r', scope: { kind: 'repo', owner: 'a', repo: 'b' }, agentId: 3, at: '' }, { host: {}, path: '/x' }] } })
     expect(dropped).toBe(0)
     expect(data.runners.settings).toMatchObject({ autoDiscover: false, orgs: ['ok'], sshHosts: ['nas'], refreshMinutes: 0 })
