@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react'
 import { Icon, MenuButton, SearchInput, Tabs, type IconName, type MenuEntry } from '../../../../third_party/summa-ui/src/ui'
-import type { Runner, RunnerAction, RunnersInventory } from '../../../shared/runners'
+import type { RetiredRunner, Runner, RunnerAction, RunnersInventory } from '../../../shared/runners'
 import { plural } from '../../util'
 import { ENV_TEXT, OS_TEXT, StatusMark, machineText, scopeText } from '../common'
+import { RetiredList } from './RetiredList'
 import { matchesSearch, sortRunners, type SortKey } from './tableLogic'
 
 type Filter = 'all' | 'online' | 'offline' | 'attention' | 'local' | 'github'
-export function RunnerTable({ inv, selected, busy, onSelect, onAction }: {
-  inv: RunnersInventory; selected: string | null; busy: Record<string, RunnerAction>; onSelect: (key: string) => void; onAction: (r: Runner, action: RunnerAction) => void
+export function RunnerTable({ inv, selected, busy, onSelect, onAction, onRestore, onCleanup }: {
+  inv: RunnersInventory; selected: string | null; busy: Record<string, RunnerAction>; onSelect: (key: string) => void; onAction: (r: Runner, action: RunnerAction | 'retire') => void
+  onRestore: (r: RetiredRunner) => void; onCleanup: (r: RetiredRunner) => void
 }) {
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
@@ -34,12 +36,13 @@ export function RunnerTable({ inv, selected, busy, onSelect, onAction }: {
   ]
   const menu = (r: Runner): MenuEntry[] => {
     const c = r.capabilities
-    const item = (label: string, action: RunnerAction, cap: { allowed: boolean }, icon: IconName, danger = false): MenuEntry => ({ label, icon, danger, disabled: !cap.allowed || !!busy[r.local?.key ?? r.key], onSelect: () => onAction(r, action) })
+    const item = (label: string, action: RunnerAction | 'retire', cap: { allowed: boolean }, icon: IconName, danger = false): MenuEntry => ({ label, icon, danger, disabled: !cap.allowed || !!busy[r.local?.key ?? r.key], onSelect: () => onAction(r, action) })
     return [
       item('Start', 'start', c.start, 'play'), item('Stop', 'stop', c.stop, 'stop'), item('Restart', 'restart', c.restart, 'refresh'),
       { type: 'sep' },
       item('Inspect service state', 'inspect', c.inspect, 'activity'), item('Check for updates', 'check-update', c.checkUpdate, 'download'),
       { type: 'sep' },
+      ...(r.local && !r.github ? [item('Retire installation', 'retire', c.retire, 'archive')] : []),
       item('Remove registration', 'unregister', c.unregister, 'unlock', true), item('Uninstall', 'uninstall', c.uninstall, 'trash', true),
     ]
   }
@@ -86,6 +89,7 @@ export function RunnerTable({ inv, selected, busy, onSelect, onAction }: {
           {rows.length === 0 && <p className="gm-section-empty muted">{inv.runners.length ? 'No runners match.' : 'No runners yet.'}</p>}
         </div>
       </div>
+      <RetiredList items={inv.retired} busy={busy} onRestore={onRestore} onCleanup={onCleanup} />
     </div>
   )
 }

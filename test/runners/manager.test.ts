@@ -88,7 +88,7 @@ describe('scanning and the inventory', () => {
     const inv = m.inventory()
     expect(inv.hosts.find(h => h.host.kind === 'ssh')).toMatchObject({ status: 'inaccessible', message: expect.stringMatching(/No route to host/) })
     const r = inv.runners.find(x => x.name === 'nas-box')!
-    expect(r.attention.join(' ')).toMatch(/Not inspected in the last scan/)
+    expect(r.notices.join(' ')).toMatch(/Not inspected in the last scan/)
     expect(r.capabilities.stop.allowed).toBe(false); expect(r.capabilities.stop.reason).toMatch(/nas did not answer/)
   })
 

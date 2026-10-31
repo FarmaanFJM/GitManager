@@ -112,7 +112,8 @@ describe('reconciliation of local installations with GitHub records', () => {
     const l = local({ agentId: null })
     const rows = reconcile([l], [github()], {})
     expect(rows[0].source).toBe('both')
-    expect(rows[0].attention.join(' ')).toMatch(/Matched to the GitHub record by name/)
+    expect(rows[0].notices.join(' ')).toMatch(/Matched to the GitHub record by name/)
+    expect(rows[0].attention).toEqual([])
     const ambiguous = reconcile([l], [github(), github({ id: 12 })], {})
     expect(ambiguous.filter(r => r.source === 'both')).toHaveLength(0)
     expect(ambiguous).toHaveLength(3)
@@ -130,11 +131,12 @@ describe('reconciliation of local installations with GitHub records', () => {
     expect(partial.name).toBe('actions-runner')
     const wsl = reconcile([local({ host: { kind: 'wsl', distro: 'Ubuntu-24.04' }, key: 'k' })], [github()])[0]
     expect(wsl.environment).toBe('wsl'); expect(wsl.distro).toBe('Ubuntu-24.04')
-    expect(wsl.attention.join(' ')).toMatch(/WSL does not start distributions when Windows boots/)
+    expect(wsl.notices.join(' ')).toMatch(/WSL does not start distributions when Windows boots/)
+    expect(wsl.attention).toEqual([])
   })
   it('summarizes online, offline, busy, manageable and monitoring-only counts', () => {
     const rows = reconcile([local()], [github(), github({ id: 2, name: 'b', busy: true }), github({ id: 3, name: 'c', status: 'offline' })])
-    expect(summarize(rows)).toEqual({ total: 3, online: 2, offline: 1, busy: 1, manageable: 1, monitoringOnly: 2, attention: 0 })
+    expect(summarize(rows)).toEqual({ total: 3, online: 2, offline: 1, busy: 1, manageable: 1, monitoringOnly: 2, attention: 0, retired: 0 })
   })
 })
 

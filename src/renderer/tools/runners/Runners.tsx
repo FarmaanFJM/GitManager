@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button, Dialog, DrawerToggle, Icon, MenuButton, Tabs, useMedia } from '../../../../third_party/summa-ui/src/ui'
 import { useConfirm, useToast } from '../../../../third_party/summa-ui/src/presets'
-import type { ActionOptions, ActionResult, Runner, RunnerAction, RunnersState } from '../../../shared/runners'
+import type { ActionOptions, ActionResult, RetiredRunner, Runner, RunnerAction, RunnersState } from '../../../shared/runners'
 import type { OpError } from '../../../shared/types'
 import { api } from '../../api'
 import type { Actions, Model } from '../../App'
@@ -87,7 +87,33 @@ export function RunnersView({ onBack }: { model: Model; actions: Actions; onBack
   const runner = findRow(sel)
   const selected = runner?.key ?? null
 
-  const act = async (r: Runner, action: RunnerAction) => {
+  const retire = async (r: Runner) => {
+    const yes = await confirm({ title: `Retire ${r.name}?`, description: `Hides the installation in ${r.path ?? ''} from the inventory and the counts, across rescans and restarts. Nothing is deleted or stopped: its files stay, and Retired installations lists it with Restore. It reappears by itself if GitHub lists it or it starts running.`, confirmLabel: 'Retire installation', icon: 'archive' })
+    if (!yes) return
+    const res = await api.runnersRetire(r.key)
+    if (!res.ok) { setBanner({ code: res.error.code, message: res.error.message }); return }
+    setBanner(null); setSel(null); toast.success(`${r.name} retired`)
+  }
+  const restore = async (it: RetiredRunner) => {
+    const res = await api.runnersRestore(it.runner.local!.key)
+    if (!res.ok) setBanner({ code: res.error.code, message: res.error.message }); else { setBanner(null); toast.success(`${it.runner.name} restored`) }
+  }
+  const cleanup = async (it: RetiredRunner) => {
+    const l = it.runner.local!
+    const yes = await confirm({
+      title: `Delete the files of retired ${it.runner.name}?`,
+      description: <>Deletes exactly this directory and everything in it, which cannot be undone: <strong className="gm-mono-sm">{l.path}</strong>. GitManager checks again first and refuses if anything runs from it, GitHub lists its registration, a service is installed, or it overlaps another installation. No registration is touched.</>,
+      confirmLabel: 'Delete files', destructive: true, requireText: l.path.split('/').filter(Boolean).pop() ?? l.path.split('\\').filter(Boolean).pop() ?? l.path,
+    })
+    if (!yes) return
+    const res = await api.runnersCleanup(l.key, l.path)
+    if (!res.ok) { setBanner({ code: res.error.code, message: res.error.message, detail: res.error.detail }); return }
+    setBanner(null)
+    if (res.value.ok) toast.success(res.value.message); else setResult(res.value)
+  }
+
+  const act = async (r: Runner, action: RunnerAction | 'retire') => {
+    if (action === 'retire') { await retire(r); return }
     const opts: ActionOptions = {}
     const dir = r.path ?? ''
     if (r.github?.busy && ['stop', 'restart', 'update', 'unregister', 'uninstall'].includes(action)) {
@@ -171,14 +197,14 @@ export function RunnersView({ onBack }: { model: Model; actions: Actions; onBack
 
       {tab === 'runners' && (
         <div className="gm-branches gm-runners-pane" ref={paneRef}>
-          {inv.runners.length === 0 && !scanning ? (
+          {inv.runners.length === 0 && inv.retired.length === 0 && !scanning ? (
             <div className="sm-empty sm-empty--center gm-storage-empty grow">
               <p className="sm-empty__text">{inv.scannedAt ? 'No runners were found on this computer or in the GitHub scopes that could be read.' : 'Scan to find runner installations here and the runners GitHub lists for your repositories.'}</p>
               <div className="row">{!inv.scannedAt && <Button variant="primary" icon="search" onClick={() => void scan()}>Scan for runners</Button>}<Button variant={inv.scannedAt ? 'primary' : 'secondary'} icon="plus" onClick={() => setAdd(true)}>Add runner</Button></div>
             </div>
           ) : (
             <>
-              {!(stacked && runner) && <RunnerTable inv={inv} selected={selected} busy={st.busy} onSelect={k => select(k === selected && !stacked ? null : k)} onAction={(r, a) => void act(r, a)} />}
+              {!(stacked && runner) && <RunnerTable inv={inv} selected={selected} busy={st.busy} onSelect={k => select(k === selected && !stacked ? null : k)} onAction={(r, a) => void act(r, a)} onRestore={it => void restore(it)} onCleanup={it => void cleanup(it)} />}
               {runner && <RunnerDetail runner={runner} busy={st.busy[runner.local?.key ?? runner.key]} toast={toast} onClose={() => setSel(null)} onAction={a => void act(runner, a)} stacked={stacked || !wide} />}
             </>
           )}

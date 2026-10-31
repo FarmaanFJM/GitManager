@@ -26,7 +26,8 @@
     "package:win": "npm run build && electron-builder --win --x64",
     "package:dir": "npm run build && electron-builder --dir",
     "verify:branding": "node scripts/verify-branding.mjs",
-    "test:e2e:runners": "npm run build && node scripts/e2e-runners.mjs"
+    "test:e2e:runners": "npm run build && node scripts/e2e-runners.mjs",
+    "test:e2e:menus": "npm run build && node scripts/e2e-menus.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

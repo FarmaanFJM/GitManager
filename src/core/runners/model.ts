@@ -12,8 +12,13 @@ const NAME = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,99})$/
 export const validOwner = (s: unknown): s is string => typeof s === 'string' && NAME.test(s) && !/^\.+$/.test(s)
 export const validRepoFull = (s: unknown): s is string => typeof s === 'string' && /^[^/]+\/[^/]+$/.test(s) && s.split('/').every(validOwner)
 
+/**
+ * One key per registration scope. A repository whose immutable GitHub id is known is keyed by that id, so every name the
+ * repository ever had (it can be renamed or transferred, and GitHub redirects the old name) is the same scope; without an
+ * id the lower-cased owner/name is the best identity there is.
+ */
 export function scopeKey(s: RunnerScope): string {
-  return s.kind === 'repo' ? `repo:${s.owner.toLowerCase()}/${s.repo.toLowerCase()}` : `org:${s.org.toLowerCase()}`
+  return s.kind === 'repo' ? (s.repoId ? `repo#${s.repoId}` : `repo:${s.owner.toLowerCase()}/${s.repo.toLowerCase()}`) : `org:${s.org.toLowerCase()}`
 }
 export const sameScope = (a: RunnerScope | null, b: RunnerScope | null) => !!a && !!b && scopeKey(a) === scopeKey(b)
 export const scopeLabel = (s: RunnerScope) => (s.kind === 'repo' ? `${s.owner}/${s.repo}` : s.org)
@@ -45,7 +50,7 @@ export function repoFromRemote(remote: string): string | null {
 export function parseScope(raw: unknown): RunnerScope | null {
   if (!raw || typeof raw !== 'object') return null
   const o = raw as Record<string, unknown>
-  if (o.kind === 'repo' && validOwner(o.owner) && validOwner(o.repo)) return { kind: 'repo', owner: o.owner, repo: o.repo }
+  if (o.kind === 'repo' && validOwner(o.owner) && validOwner(o.repo)) return typeof o.repoId === 'number' && Number.isSafeInteger(o.repoId) && o.repoId > 0 ? { kind: 'repo', owner: o.owner, repo: o.repo, repoId: o.repoId } : { kind: 'repo', owner: o.owner, repo: o.repo }
   if (o.kind === 'org' && validOwner(o.org)) return { kind: 'org', org: o.org }
   return null
 }
@@ -183,12 +188,12 @@ export function capabilitiesFor(local: LocalRunner | null, github: GitHubRunner 
     const r = github ? 'Not found on a machine GitManager can reach. GitHub shows this runner, but its files and service are elsewhere.' : 'No local installation.'
     return {
       start: no(r), stop: no(r), restart: no(r), inspect: no(r), openFolder: no(r), logs: no(r), checkUpdate: no('The installed version is unknown without access to the machine.'), update: no(r),
-      unregister: github ? yes : no(r), uninstall: no(r),
+      unregister: github ? yes : no(r), uninstall: no(r), retire: no('Only an installation on a machine GitManager can reach can be retired.'),
     }
   }
   if (!ctx.hostReachable) {
     const r = local.host.kind === 'ssh' ? `The SSH host ${local.host.host} did not answer.` : local.host.kind === 'wsl' ? `The WSL distribution ${local.host.distro} could not be reached.` : 'The installation could not be reached.'
-    return { start: no(r), stop: no(r), restart: no(r), inspect: no(r), openFolder: no(r), logs: no(r), checkUpdate: no(r), update: no(r), unregister: github ? yes : no(r), uninstall: no(r) }
+    return { start: no(r), stop: no(r), restart: no(r), inspect: no(r), openFolder: no(r), logs: no(r), checkUpdate: no(r), update: no(r), unregister: github ? yes : no(r), uninstall: no(r), retire: no(r) }
   }
   const svc = local.service
   const hasService = svc.kind === 'systemd' || svc.kind === 'launchd' || svc.kind === 'windows-service'
@@ -207,20 +212,91 @@ export function capabilitiesFor(local: LocalRunner | null, github: GitHubRunner 
     restart: restart.allowed && busy ? { allowed: true, reason: `Restarting interrupts the job.${busyNote}` } : restart,
     inspect: yes, openFolder: local.host.kind === 'ssh' ? no('The folder is on a remote machine.') : yes, logs: yes,
     checkUpdate: local.version === null ? no('The installed version could not be read.') : yes, update,
-    unregister: local.configured || github ? yes : no('Not registered.'), uninstall: local.host.kind === 'ssh' && !local.configured ? uninstall : uninstall,
+    unregister: local.configured || github ? yes : no('Not registered.'), uninstall,
+    retire: retireCapability(local, github),
   }
+}
+
+/** Hiding an installation is allowed only for an orphan: files on disk that GitHub does not list and nothing is running from. */
+export function retireCapability(local: LocalRunner, github: GitHubRunner | null): Capability {
+  if (github) return no(`Registered with GitHub as runner ${github.id}: this is an active runner, not an orphan.`)
+  if (local.service.state === 'running' || local.process.running === true) return no('Running now: stop it first, or keep it in the inventory.')
+  return yes
+}
+
+const sepOfKey = (k: string) => (k.startsWith('win:') ? '\\' : '/')
+/** True when one installation directory is, or lies inside, or contains the other (whole path segments only: actions-runner-a is not inside actions-runner). */
+export function installsOverlap(a: Pick<LocalRunner, 'host' | 'path'>, b: Pick<LocalRunner, 'host' | 'path'>): boolean {
+  const ka = installKey(a.host, a.path), kb = installKey(b.host, b.path)
+  const sep = sepOfKey(ka)
+  const x = ka.endsWith(sep) ? ka : ka + sep, y = kb.endsWith(sep) ? kb : kb + sep
+  return x.startsWith(y) || y.startsWith(x)
+}
+
+export type CleanupContext = {
+  /** Every other installation GitManager knows (active, retired, on any host); the one being checked is excluded by key. */
+  others: LocalRunner[]
+  /** GitHub was read for the installation's scope and confirmed there is no runner with its id. */
+  registrationGone: boolean
+}
+
+/**
+ * Whether the files of an orphaned installation may be removed. Every condition is re-checked at the moment of the action
+ * from a fresh inspection; this function never allows more than the uninstall path itself would.
+ */
+export function cleanupCheck(r: Runner, ctx: CleanupContext): { allowed: boolean; reasons: string[] } {
+  const reasons: string[] = []
+  const l = r.local
+  if (!l) return { allowed: false, reasons: ['No local installation.'] }
+  if (r.github) reasons.push(`GitHub lists this registration (runner ${r.github.id}). It is the active runner, not an orphan.`)
+  if (l.service.state === 'running' || l.process.running === true) reasons.push('Something is running from this folder.')
+  else if (l.process.running === null) reasons.push('Whether a runner process is running from this folder could not be determined.')
+  if (l.service.kind !== 'none' && l.service.state !== 'not-installed') reasons.push(`A service is installed for it${l.service.name ? ` (${l.service.name})` : ''}. Uninstall the runner instead; that removes the service properly.`)
+  if (l.configured && !ctx.registrationGone) reasons.push('GitHub has not confirmed that this registration is gone. Scan with GitHub access, or check the runner settings on GitHub.')
+  const dir = checkInstallDirectory(l.os, l.path)
+  if (!dir.ok) reasons.push(`${l.path} is not a directory GitManager deletes (${dir.message})`)
+  for (const o of ctx.others) {
+    if (o.key === l.key) continue
+    if (installsOverlap(l, o)) reasons.push(`Its folder overlaps another installation (${o.path}).`)
+    else if (l.service.name && o.service.name && l.service.kind === o.service.kind && sameHost(l.host, o.host) && l.service.name === o.service.name) reasons.push(`It shares the service name ${l.service.name} with ${o.path}.`)
+    else if (l.agentId !== null && o.agentId === l.agentId && l.scope && o.scope && scopeKey(l.scope) === scopeKey(o.scope)) reasons.push(`It shares runner id ${l.agentId} with ${o.path}.`)
+  }
+  return { allowed: reasons.length === 0, reasons }
 }
 
 const platformOf = (local: LocalRunner | null, github: GitHubRunner | null): RunnerOs => (local && local.os !== 'unknown' ? local.os : github ? osFromGitHub(github.os) : local?.os ?? 'unknown')
 
-export type ReconcileOptions = { latestVersion?: string | null; githubFetched?: (scope: RunnerScope) => boolean; hostReachable?: (host: RunnerHost) => boolean }
+export type ReconcileOptions = {
+  latestVersion?: string | null
+  githubFetched?: (scope: RunnerScope) => boolean
+  hostReachable?: (host: RunnerHost) => boolean
+  /** Maps a scope to its canonical form (current name and GitHub's repository id). Applied to both sides before anything is paired. */
+  canonicalScope?: (scope: RunnerScope) => RunnerScope
+}
+
+/** The same runner read through two names of one repository is one record; the freshest read wins. */
+export function dedupeGitHubRunners(githubs: GitHubRunner[], canon: (s: RunnerScope) => RunnerScope = s => s): GitHubRunner[] {
+  const out = new Map<string, GitHubRunner>()
+  for (const g of githubs) {
+    const sc = canon(g.scope)
+    const c = sc === g.scope ? g : { ...g, scope: sc }
+    const k = githubKey(c), prev = out.get(k)
+    if (!prev || Date.parse(c.fetchedAt) > Date.parse(prev.fetchedAt)) out.set(k, c)
+  }
+  return [...out.values()]
+}
 
 /**
  * Pairs local installations with GitHub records by registration scope and GitHub's runner id (from .runner); an
  * installation without an id is paired only by name inside the same scope, never across scopes or by name alone.
- * Everything unpaired becomes its own row, so a runner on another machine stays visible and a leftover folder is reported.
+ * Scopes are canonical first (a renamed repository is one scope, see scopeKey), and a runner read under two aliases is one
+ * record. Everything unpaired becomes its own row, so a runner on another machine stays visible and a leftover folder is reported.
+ * Two distinct registrations that share a display name stay two rows: only the (scope, runner id) pair identifies a runner.
  */
-export function reconcile(locals: LocalRunner[], githubs: GitHubRunner[], opts: ReconcileOptions = {}): Runner[] {
+export function reconcile(localsIn: LocalRunner[], githubsIn: GitHubRunner[], opts: ReconcileOptions = {}): Runner[] {
+  const canon = opts.canonicalScope ?? (s => s)
+  const githubs = dedupeGitHubRunners(githubsIn, canon)
+  const locals = localsIn.map(l => { const sc = l.scope ? canon(l.scope) : null; return l.scope && sc !== l.scope ? { ...l, scope: sc } : l })
   const unpaired = new Map(githubs.map(g => [githubKey(g), g]))
   const rows: Runner[] = []
   const reachable = opts.hostReachable ?? (() => true)
@@ -229,24 +305,35 @@ export function reconcile(locals: LocalRunner[], githubs: GitHubRunner[], opts: 
 
   for (const l of locals) {
     let g: GitHubRunner | null = null
-    const warnings = [...l.warnings]
+    const notices: string[] = []
     if (l.scope && l.agentId !== null) {
       const k = githubKey({ id: l.agentId, scope: l.scope })
       g = unpaired.get(k) ?? null
       if (g) unpaired.delete(k)
     } else if (l.scope && l.agentName) {
       const c = (byScopeName.get(`${scopeKey(l.scope)}|${l.agentName.toLowerCase()}`) ?? []).filter(x => unpaired.has(githubKey(x)))
-      if (c.length === 1) { g = c[0]; unpaired.delete(githubKey(g)); warnings.push('Matched to the GitHub record by name within the same scope (the installation has no runner id).') }
+      if (c.length === 1) { g = c[0]; unpaired.delete(githubKey(g)); notices.push('Matched to the GitHub record by name within the same scope (the installation has no runner id).') }
     }
-    rows.push(makeRow(l, g, warnings, opts, reachable(l.host)))
+    rows.push(makeRow(l, g, l.warnings, notices, opts, reachable(l.host)))
   }
-  for (const g of unpaired.values()) rows.push(makeRow(null, g, [], opts, true))
+  for (const g of unpaired.values()) rows.push(makeRow(null, g, [], [], opts, true))
   return rows.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) || a.key.localeCompare(b.key))
 }
 
-function makeRow(local: LocalRunner | null, github: GitHubRunner | null, warnings: string[], opts: ReconcileOptions, hostReachable: boolean): Runner {
+/** Remainder of the version difference: 'patch' when only the last number differs, 'minor' for a newer minor or major. */
+export function updateGap(installed: string, latest: string): 'none' | 'patch' | 'minor' {
+  if (compareVersions(installed, latest) >= 0) return 'none'
+  const a = installed.replace(/^v/, '').split('.').map(Number), b = latest.replace(/^v/, '').split('.').map(Number)
+  return a[0] === b[0] && a[1] === b[1] ? 'patch' : 'minor'
+}
+
+/** Local notes that are information, not problems. Everything else the inspection reports (unreadable file, missing credentials, foreign server) is a warning. */
+const INFO_WARNING = /^Not inspected in the last scan/
+
+function makeRow(local: LocalRunner | null, github: GitHubRunner | null, localWarnings: string[], notes: string[], opts: ReconcileOptions, hostReachable: boolean): Runner {
   const caps = capabilitiesFor(local, github, { hostReachable })
-  const attention = [...warnings]
+  const attention: string[] = localWarnings.filter(w => !INFO_WARNING.test(w))
+  const notices: string[] = [...localWarnings.filter(w => INFO_WARNING.test(w)), ...notes]
   const platform = platformOf(local, github)
   const version = local?.version ?? null
   if (local) {
@@ -254,13 +341,18 @@ function makeRow(local: LocalRunner | null, github: GitHubRunner | null, warning
     if (github) {
       if (github.status === 'offline' && (local.service.state === 'running' || local.process.running)) attention.push('The local service is running but GitHub reports the runner offline. Check its connectivity and the diagnostic logs.')
       if (github.status === 'online' && local.service.state === 'stopped' && local.process.running === false) attention.push('GitHub reports the runner online, but no local service or runner process was found for this installation.')
-      if (local.agentName && github.name !== local.agentName) attention.push(`Registered as ${local.agentName} locally, listed as ${github.name} on GitHub.`)
+      if (local.agentName && github.name !== local.agentName) notices.push(`Registered as ${local.agentName} locally, listed as ${github.name} on GitHub.`)
     } else if (local.configured && local.scope && opts.githubFetched?.(local.scope)) {
       attention.push(`Not found among the runners of ${scopeLabel(local.scope)} on GitHub: the registration may have been removed. The files and service are still here.`)
     }
-    if (version && opts.latestVersion && compareVersions(version, opts.latestVersion) < 0) attention.push(`Version ${version} installed, ${opts.latestVersion} is the latest release.${local.disableUpdate ? ' Automatic updates are turned off for this runner.' : ' The runner updates itself unless automatic updates were turned off.'}`)
-    if (local.service.kind === 'none' && local.configured) attention.push('Not installed as a service: it runs only while someone starts it.')
-    if (local.host.kind === 'wsl' && local.service.kind === 'systemd') attention.push(`Runs inside WSL (${local.host.distro}). The service starts with the distribution, and WSL does not start distributions when Windows boots.`)
+    if (version && opts.latestVersion) {
+      const gap = updateGap(version, opts.latestVersion)
+      const auto = local.disableUpdate ? ' Automatic updates are turned off for this runner.' : ' The runner updates itself unless automatic updates were turned off.'
+      if (gap === 'patch') notices.push(`Version ${version} installed, ${opts.latestVersion} is the latest release (a patch update).${auto}`)
+      else if (gap === 'minor') attention.push(`Version ${version} installed, ${opts.latestVersion} is the latest release.${auto}`)
+    }
+    if (local.service.kind === 'none' && local.configured) notices.push('Not installed as a service: it runs only while someone starts it.')
+    if (local.host.kind === 'wsl' && local.service.kind === 'systemd') notices.push(`Runs inside WSL (${local.host.distro}). The service starts with the distribution, and WSL does not start distributions when Windows boots.`)
   }
   const manageable = (['start', 'stop', 'restart', 'update', 'uninstall'] as const).some(k => caps[k].allowed) && !!local && hostReachable
   return {
@@ -276,14 +368,15 @@ function makeRow(local: LocalRunner | null, github: GitHubRunner | null, warning
     version,
     github, local,
     source: github && local ? 'both' : github ? 'github' : 'local',
-    attention, capabilities: caps, manageable,
+    attention, notices, capabilities: caps, manageable,
   }
 }
 
 export const baseNameOf = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p
 
-export function summarize(runners: Runner[]): RunnerSummary {
+export function summarize(runners: Runner[], retired = 0): RunnerSummary {
   return {
+    retired,
     total: runners.length,
     online: runners.filter(r => r.status === 'online' || r.status === 'busy').length,
     offline: runners.filter(r => r.status === 'offline').length,

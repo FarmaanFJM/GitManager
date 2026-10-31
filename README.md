@@ -30,7 +30,7 @@ Open GitManager, select a repository, fetch and pull, pick a branch, press Run, 
 - Opening a branch shows its reference, comparison base, counts, latest commit, the commits only on it, the commits on the default branch it lacks, and the files changed since the merge base. Switching (or creating a local tracking branch) is an explicit button that reuses the safe switch, including the running-services guard. Inspection itself only reads.
 - Remote data is labelled with the time of the last fetch, so it is not mistaken for live GitHub state.
 
-GitManager never discards changes, resets, force-pulls, rebases, merges, deletes branches (the Storage view deletes GitHub Actions artifacts only, and nothing else), force-pushes or stashes. Pull is `git fetch` followed by `git merge --ff-only --no-autostash`; a diverged branch, a missing upstream or conflicts are refused before anything runs, and when Git itself refuses (local changes would be overwritten) the repository is left exactly as it was.
+Removing a repository from the list never touches its files, and deleting its local folder is a separate, explicit action (right-click a repository, Delete local folder): inspected first, moved to the recycle bin or trash, never silently permanent, never anything on GitHub. See [Repository actions](docs/REPOSITORIES.md). Apart from that action, GitManager never discards changes, resets, force-pulls, rebases, merges, deletes branches (the Storage view deletes GitHub Actions artifacts only, and nothing else), force-pushes or stashes. Pull is `git fetch` followed by `git merge --ff-only --no-autostash`; a diverged branch, a missing upstream or conflicts are refused before anything runs, and when Git itself refuses (local changes would be overwritten) the repository is left exactly as it was.
 
 **Development services**
 - Each repository can have several profiles. A profile has a runtime (Windows, or a WSL distribution), a working directory, one or more services, a URL to open and a preferred browser (Chrome, Edge, system default).
@@ -104,6 +104,7 @@ npm run typecheck
 npm test                  # unit and integration tests: temporary Git repositories and real processes
 npm run test:e2e          # the first-release acceptance scenario against the built app
 npm run test:e2e:storage  # the Storage scenario: the real app against a stand-in for the GitHub CLI (no network, no real repository)
+npm run test:e2e:menus   # the repository context menu, removal and deletion with a real trash, opaque menus measured in the real window, retiring an orphaned runner (Linux)
 npm run test:e2e:runners  # the Runners scenario: discovery, GitHub reconciliation, the wizard installing a stand-in runner package, lifecycle (Linux)
 node scripts/e2e-windows.mjs release/GitManager-<version>-x64.exe   # Windows: install and test the installed build
 ```
@@ -119,6 +120,7 @@ node scripts/e2e-windows.mjs release/GitManager-<version>-x64.exe   # Windows: i
 ## Documentation
 
 - [Storage](docs/STORAGE.md): artifact inventory, classification rules, safe deletion, Auto Cleanup, and what the GitHub API cannot tell.
+- [Repository actions](docs/REPOSITORIES.md): the right-click menu, removing a repository from GitManager and deleting its local folder safely.
 - [Runners](docs/RUNNERS.md): the Tools section and the Runner Manager: discovery, installation, service management, WSL, permissions, security, troubleshooting and what was verified.
 - [Live verification](docs/LIVE_VERIFICATION.md): qualifying Storage against real GitHub and Windows, with an independent reconciliation script.
 - [Architecture](docs/ARCHITECTURE.md): modules, process model, security, Windows and WSL execution.
