@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import type { AuthState } from '../../shared/storage.js'
 import { firstLine, run, type ExecSpec } from '../exec.js'
 
-export type GhMethod = 'GET' | 'DELETE'
+export type GhMethod = 'GET' | 'DELETE' | 'POST'
 export type GhResponse = { status: number; headers: Record<string, string>; body: unknown }
 export type GhRequestOptions = { raw?: boolean }
 
@@ -67,8 +67,14 @@ export function parseInclude(out: string): GhResponse | null {
 }
 
 const PATH = /^\/[A-Za-z0-9_./?=&%,:+-]*$/
-/** The only request that changes anything: one artifact, by id, in one repository. Releases, assets, caches, packages and branches cannot match. */
+/** Storage: the only request that changes anything is one artifact, by id, in one repository. Releases, assets, caches, packages and branches cannot match. */
 export const DELETE_PATH = /^\/repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/actions\/artifacts\/[1-9]\d{0,15}$/
+/** Runners: a registration is removed by id in one repository or organization; nothing else may be deleted. */
+export const RUNNER_DELETE_PATH = /^\/(?:repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+|orgs\/[A-Za-z0-9_.-]+)\/actions\/runners\/[1-9]\d{0,15}$/
+/** Runners: the only POST requests are the time-limited registration and removal tokens. They carry no body. */
+export const RUNNER_POST_PATH = /^\/(?:repos\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+|orgs\/[A-Za-z0-9_.-]+)\/actions\/runners\/(?:registration-token|remove-token)$/
+/** Which mutations a GhCli instance may send. Storage and Runners each get their own instance and their own request log. */
+export type GhProfile = 'storage' | 'runners'
 /** Dot segments, doubled or encoded slashes and encoded dots could redirect a request; none is ever needed. */
 const SUSPICIOUS = /(^|\/)\.{1,2}(\/|$|\?)|\/\/|%2e|%5c/i
 
@@ -85,7 +91,7 @@ export function ghCandidates(env: NodeJS.ProcessEnv = process.env, platform = pr
 
 export class GhCli implements GhApi {
   private exe: string | null = null
-  constructor(private readonly opts: { runner?: typeof run; candidates?: string[]; timeoutMs?: number } = {}) {}
+  constructor(private readonly opts: { runner?: typeof run; candidates?: string[]; timeoutMs?: number; profile?: GhProfile; logFile?: string | null } = {}) {}
 
   private env(): NodeJS.ProcessEnv {
     // No prompts, colour or pager; debug output (which can echo request headers) is switched off.
@@ -108,7 +114,7 @@ export class GhCli implements GhApi {
 
   /** Request log lines carry a method and a path, or a phase marker, and nothing else. */
   private log(line: string) {
-    const file = process.env.GITMANAGER_GH_REQUEST_LOG
+    const file = this.opts.logFile !== undefined ? this.opts.logFile : this.opts.profile === 'runners' ? process.env.GITMANAGER_GH_RUNNERS_REQUEST_LOG : process.env.GITMANAGER_GH_REQUEST_LOG
     if (file) { try { appendFileSync(file, `${new Date().toISOString()} ${line}\n`) } catch { /* logging must never break a request */ } }
   }
 
@@ -116,7 +122,14 @@ export class GhCli implements GhApi {
 
   async request(method: GhMethod, path: string, opts: GhRequestOptions = {}): Promise<GhResponse> {
     if (!PATH.test(path) || SUSPICIOUS.test(path)) throw new GhError('request', 'Invalid GitHub API path.')
-    if (method === 'DELETE' && !DELETE_PATH.test(path)) throw new GhError('request', 'Refused: GitManager only deletes single Actions artifacts.')
+    const profile = this.opts.profile ?? 'storage'
+    if (profile === 'storage') {
+      if (method === 'POST') throw new GhError('request', 'Refused: the Storage module never sends POST requests.')
+      if (method === 'DELETE' && !DELETE_PATH.test(path)) throw new GhError('request', 'Refused: GitManager only deletes single Actions artifacts.')
+    } else {
+      if (method === 'POST' && !RUNNER_POST_PATH.test(path)) throw new GhError('request', 'Refused: the Runners tool only requests registration and removal tokens.')
+      if (method === 'DELETE' && !RUNNER_DELETE_PATH.test(path)) throw new GhError('request', 'Refused: the Runners tool only removes single runner registrations.')
+    }
     // Optional, for verification: method and path only, never headers, bodies or credentials.
     this.log(`${method} ${path}`)
     const args = ['api', '-i', '-X', method, path, '-H', 'X-GitHub-Api-Version: 2022-11-28', '-H', `Accept: ${opts.raw ? 'application/vnd.github.raw+json' : 'application/vnd.github+json'}`]

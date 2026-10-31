@@ -8,11 +8,12 @@ import { ProfileEditor } from './ProfileEditor'
 import { SettingsView } from './Settings'
 import { Sidebar } from './Sidebar'
 import { StorageView } from './Storage'
+import { ToolsView, type ToolId } from './tools/Tools'
 import { Workspace, WelcomeEmpty } from './Workspace'
 import { isTyping } from './util'
 
 export type RepoView = { status?: RepoStatus; error?: OpError; loading: boolean }
-export type View = { kind: 'repo' } | { kind: 'settings' } | { kind: 'storage' } | { kind: 'profile'; profile: Profile; isNew: boolean }
+export type View = { kind: 'repo' } | { kind: 'settings' } | { kind: 'storage' } | { kind: 'tools'; tool: ToolId | null } | { kind: 'profile'; profile: Profile; isNew: boolean }
 
 /** Everything the screens need, loaded from the main process and kept current by its events. */
 export type Model = {
@@ -148,7 +149,7 @@ export function App() {
   }, [])
 
   const repo: Repo | undefined = data?.repos.find(r => r.id === selectedId)
-  useEffect(() => { document.title = repo ? `${repo.name} · GitManager` : 'GitManager' }, [repo])
+  useEffect(() => { if (view.kind === 'repo' || view.kind === 'profile') document.title = repo ? `${repo.name} · GitManager` : 'GitManager' }, [repo, view.kind])
 
   const model: Model | null = useMemo(() => platform && data ? ({
     platform, data, distros, statuses, remotes, fetchedAt, services, logVersion, discovery, logs: (k: string) => logStore.current.get(k) ?? [],
@@ -175,6 +176,7 @@ export function App() {
     <AppShell sidebar={<Sidebar model={model} actions={actions} view={view} />}>
       {view.kind === 'settings' ? <SettingsView model={model} actions={actions} />
         : view.kind === 'storage' ? <StorageView />
+        : view.kind === 'tools' ? <ToolsView tool={view.tool} model={model} actions={actions} />
         : view.kind === 'profile' && repo ? <ProfileEditor key={view.profile.id} model={model} actions={actions} repo={repo} initial={view.profile} isNew={view.isNew} />
           : repo ? <Workspace key={repo.id} model={model} actions={actions} repo={repo} />
             : <WelcomeEmpty hasRepos={model.data.repos.length > 0} searching={!!model.discovery?.running} onAdd={actions.addRepoDialog} />}

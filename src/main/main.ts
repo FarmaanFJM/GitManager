@@ -130,7 +130,12 @@ function start() {
     createWindow(startHidden(process.argv, store.data.settings))
     syncTray()
     // Automatic discovery runs in the background once the window is up, at every launch, unless the user turned it off.
-    win?.webContents.once('did-finish-load', () => { if (store.data.settings.autoDiscover) void backend.discovery.run('common') })
+    win?.webContents.once('did-finish-load', () => {
+      if (store.data.settings.autoDiscover) void backend.discovery.run('common')
+      // Runner discovery at launch reads local files (and GitHub only when the user allowed it in Settings).
+      const rs = store.data.runners.settings
+      if (rs.autoDiscover) backend.runners.scan({ localOnly: !rs.githubAtStartup })
+    })
     // The optional storage schedule only ticks while GitManager runs; it is off unless the user turned it on in Storage.
     backend.storage.start()
     app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow() })

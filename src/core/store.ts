@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname } from 'node:path'
 import type { StorageConfig } from '../shared/storage.js'
 import { emptyConfig, sanitizeConfig } from './storage/config.js'
+import type { RunnersConfig } from '../shared/runners.js'
+import { emptyRunnersConfig, sanitizeRunnersConfig } from './runners/config.js'
 import type { IgnoredRepo, Location, Profile, Repo, Root, Settings } from '../shared/types.js'
 import { baseName, locationKey, sameLocation } from './paths.js'
 import * as v from './validate.js'
@@ -21,10 +23,12 @@ export type Data = {
   discovery: { lastRunAt: string | null }
   /** Storage module: settings, per-repository policies, protected repositories and pinned artifacts. Local only. */
   storage: StorageConfig
+  /** Runners tool: discovery settings, search roots, allowed SSH hosts and known installations. No credentials. */
+  runners: RunnersConfig
 }
 
 export const DEFAULT_SETTINGS: Settings = { editor: 'code', chromePath: '', discoveryDepth: 3, autoDiscover: true, launchAtStartup: false, startMinimized: false, minimizeToTray: false }
-const empty = (): Data => ({ schemaVersion: 1, repos: [], roots: [], profiles: [], settings: { ...DEFAULT_SETTINGS }, ui: { selectedRepoId: null, selectedProfile: {} }, ignored: [], compareBase: {}, discovery: { lastRunAt: null }, storage: emptyConfig() })
+const empty = (): Data => ({ schemaVersion: 1, repos: [], roots: [], profiles: [], settings: { ...DEFAULT_SETTINGS }, ui: { selectedRepoId: null, selectedProfile: {} }, ignored: [], compareBase: {}, discovery: { lastRunAt: null }, storage: emptyConfig(), runners: emptyRunnersConfig() })
 
 export const newId = () => randomUUID().replace(/-/g, '').slice(0, 16)
 
@@ -51,6 +55,7 @@ export function sanitize(raw: unknown): { data: Data; dropped: number } {
     for (const [k, val] of Object.entries(r.compareBase as Record<string, unknown>)) if (typeof val === 'string' && repoIds.has(k) && val.length < 256) d.compareBase[k] = val
   }
   d.storage = sanitizeConfig(r.storage)
+  d.runners = sanitizeRunnersConfig(r.runners)
   const disc = (r.discovery ?? {}) as Record<string, unknown>
   d.discovery.lastRunAt = typeof disc.lastRunAt === 'string' ? disc.lastRunAt : null
   const ui = (r.ui ?? {}) as Record<string, unknown>

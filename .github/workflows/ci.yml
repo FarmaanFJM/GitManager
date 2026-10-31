@@ -53,6 +53,8 @@ jobs:
         run: xvfb-run -a --server-args="-screen 0 1600x1000x24" npm run test:e2e
       - name: Run the Storage scenario (stand-in GitHub CLI, no network)
         run: xvfb-run -a --server-args="-screen 0 1600x1000x24" npm run test:e2e:storage
+      - name: Run the Runners scenario (stand-in GitHub CLI and runner package, no network)
+        run: xvfb-run -a --server-args="-screen 0 1600x1000x24" npm run test:e2e:runners
       - uses: actions/upload-artifact@v5
         if: always()
         with:

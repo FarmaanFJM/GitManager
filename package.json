@@ -25,7 +25,8 @@
     "record:usage": "node scripts/summa-ui/record-guidance-usage.mjs --app gitmanager --lock summa-ui.lock.json --repository https://github.com/FarmaanFJM/GitManager --out summa-ui.usage.json",
     "package:win": "npm run build && electron-builder --win --x64",
     "package:dir": "npm run build && electron-builder --dir",
-    "verify:branding": "node scripts/verify-branding.mjs"
+    "verify:branding": "node scripts/verify-branding.mjs",
+    "test:e2e:runners": "npm run build && node scripts/e2e-runners.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

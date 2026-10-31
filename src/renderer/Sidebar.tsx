@@ -34,7 +34,7 @@ export function Sidebar({ model, actions, view }: { model: Model; actions: Actio
   const row = (r: typeof repos[number]) => {
     const st = model.statuses[r.id]?.status
     const meta = st ? [st.behind ? `↓${st.behind}` : '', st.ahead ? `↑${st.ahead}` : ''].filter(Boolean).join(' ') : ''
-    const current = view.kind !== 'settings' && view.kind !== 'storage' && model.data.ui.selectedRepoId === r.id
+    const current = (view.kind === 'repo' || view.kind === 'profile') && model.data.ui.selectedRepoId === r.id
     return (
       <button key={r.id} type="button" className="nav-item" aria-current={current ? 'true' : undefined} onClick={() => actions.select(r.id)}
         title={`${r.location.kind === 'wsl' ? `${r.location.distro}: ${r.location.path}` : r.location.path}${r.worktree ? ' (worktree)' : ''}`}>
@@ -87,6 +87,7 @@ export function Sidebar({ model, actions, view }: { model: Model; actions: Actio
         <p className="gm-discovery" role="status"><span className="sm-spinner" aria-hidden="true" />Finding repositories{model.discovery.added ? `, ${model.discovery.added} added` : ''}</p>
       )}
       <div className="gm-side-foot">
+        <NavItem icon="layers" label="Tools" current={view.kind === 'tools'} onClick={() => actions.setView({ kind: 'tools', tool: null })} />
         <NavItem icon="drive" label="Storage" current={view.kind === 'storage'} onClick={() => actions.setView({ kind: 'storage' })} />
         <NavItem icon="settings" label="Settings" current={view.kind === 'settings'} onClick={() => actions.setView({ kind: 'settings' })} />
       </div>

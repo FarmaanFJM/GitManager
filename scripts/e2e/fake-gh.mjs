@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // A stand-in for the GitHub CLI for the Storage acceptance scenario: `gh api -i -X METHOD /path`, answered from a JSON
 // world (FAKE_GH_STATE) that DELETE changes, so the real application can be driven end to end without touching GitHub.
-// Only the endpoints GitManager's Storage module uses exist. It never reads or prints a credential.
+// Only the endpoints GitManager's Storage and Runners modules use exist. It never reads or prints a credential.
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs'
 
 const file = process.env.FAKE_GH_STATE
@@ -21,6 +21,7 @@ const out = (status, body, headers = {}) => {
 }
 const err = (status, message, headers) => out(status, { message }, headers)
 
+const save = () => writeFileSync(file, JSON.stringify(world))
 const [path, qs = ''] = url.split('?')
 const q = new URLSearchParams(qs)
 const page = Number(q.get('page') ?? 1), per = Number(q.get('per_page') ?? 30)
@@ -33,6 +34,38 @@ if (path === '/user') out(200, { login: world.login, plan: { name: 'pro' } }, { 
 if (path === '/user/repos') out(200, slice(world.repos.map(repoJson)))
 if (path === '/user/packages') out(200, q.get('package_type') === 'container' ? world.packages ?? [] : [])
 if (path.startsWith(`/users/${world.login}/settings/billing/usage`)) world.billing ? out(200, world.billing) : err(403, 'Resource not accessible')
+
+// ---- runners (self-hosted runner API): tokens are random, time-limited and consumed by the stand-in runner package
+const newToken = () => 'A' + Array.from({ length: 28 }, () => 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'[Math.floor(Math.random() * 32)]).join('')
+const runnerJson = r => ({ id: r.id, name: r.name, os: r.os ?? 'Linux', status: r.status ?? 'offline', busy: !!r.busy, ephemeral: !!r.ephemeral, runner_group_id: r.group ?? null, labels: [{ id: 1, name: 'self-hosted', type: 'read-only' }, { id: 2, name: r.os ?? 'Linux', type: 'read-only' }, { id: 3, name: r.arch ?? 'X64', type: 'read-only' }, ...(r.labels ?? []).map((l, i) => ({ id: 10 + i, name: l, type: 'custom' }))] })
+const pkg = world.runnerPackage ?? { version: '2.321.0', sha256: {} }
+if (path === '/user/orgs') out(200, slice((world.orgs ?? []).map(o => ({ login: o.login }))))
+let om = /^\/user\/memberships\/orgs\/([^/]+)$/.exec(path)
+if (om) { const o = (world.orgs ?? []).find(x => x.login.toLowerCase() === decodeURIComponent(om[1]).toLowerCase()); o ? out(200, { role: o.role ?? 'member' }) : err(404, 'Not Found') }
+if (path === '/repos/actions/runner/releases/latest') out(200, { tag_name: `v${pkg.version}`, html_url: `https://github.com/actions/runner/releases/tag/v${pkg.version}`, body: Object.entries(pkg.sha256).map(([k, v]) => `<!-- BEGIN SHA ${k} -->${v}<!-- END SHA ${k} -->`).join('\n') })
+function runnerEndpoints(holder, scopeKey, rest, forbidden) {
+  if (!rest.startsWith('/actions/runner')) return
+  if (forbidden) err(403, 'Resource not accessible by personal access token')
+  holder.runners = holder.runners ?? []
+  if (rest === '/actions/runners' && method === 'GET') out(200, { total_count: holder.runners.length, runners: slice(holder.runners).map(runnerJson) })
+  const one = /^\/actions\/runners\/(\d+)$/.exec(rest)
+  if (one) {
+    const r = holder.runners.find(x => x.id === Number(one[1]))
+    if (!r) err(404, 'Not Found')
+    if (method === 'GET') out(200, runnerJson(r))
+    if (method === 'DELETE') { if (r.busy) err(422, 'Runner is busy'); holder.runners = holder.runners.filter(x => x !== r); save(); out(204, null) }
+  }
+  if ((rest === '/actions/runners/registration-token' || rest === '/actions/runners/remove-token') && method === 'POST') {
+    const token = newToken(); world.tokens = [...(world.tokens ?? []), { token, scope: scopeKey, kind: rest.endsWith('remove-token') ? 'remove' : 'register', expires: Date.now() + 3600_000 }]; save()
+    out(201, { token, expires_at: new Date(Date.now() + 3600_000).toISOString() })
+  }
+  if (rest === '/actions/runners/downloads') out(200, Object.entries(pkg.sha256).map(([k, v]) => { const [os, arch] = k.split('-'); const filename = `actions-runner-${k}-${pkg.version}.${os === 'win' ? 'zip' : 'tar.gz'}`; return { os, architecture: arch, filename, download_url: `https://github.com/actions/runner/releases/download/v${pkg.version}/${filename}`, sha256_checksum: v } }))
+  if (rest === '/actions/runner-groups') out(200, { total_count: (holder.groups ?? []).length, runner_groups: (holder.groups ?? []).map(g => ({ id: g.id, name: g.name, default: !!g.default, visibility: g.visibility ?? 'all', allows_public_repositories: false })) })
+  const gr = /^\/actions\/runner-groups\/(\d+)\/repositories$/.exec(rest)
+  if (gr) out(200, { total_count: 0, repositories: ((holder.groups ?? []).find(g => g.id === Number(gr[1]))?.repos ?? []).map(full => ({ full_name: full })) })
+}
+om = /^\/orgs\/([^/]+)(\/.*)?$/.exec(path)
+if (om) { const o = (world.orgs ?? []).find(x => x.login.toLowerCase() === decodeURIComponent(om[1]).toLowerCase()); if (!o) err(404, 'Not Found'); runnerEndpoints(o, o.login, om[2] ?? '', o.role !== 'admin'); err(404, 'Not Found') }
 
 const m = /^\/repos\/([^/]+\/[^/]+)(\/.*)?$/.exec(path)
 if (!m) err(404, 'Not Found')
@@ -52,6 +85,7 @@ function runJson(x) {
 }
 
 if (rest === '' && method === 'GET') out(200, repoJson(repo))
+runnerEndpoints(repo, repo.full, rest, repo.push === false || repo.runnersForbidden === true)
 if (rest === '/actions/artifacts') out(200, { total_count: repo.artifacts.length, artifacts: slice(repo.artifacts).map(artifactJson) })
 let am = /^\/actions\/artifacts\/(\d+)$/.exec(rest)
 if (am) {
