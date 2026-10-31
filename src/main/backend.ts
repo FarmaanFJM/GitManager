@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { dirname } from 'node:path'
 import type { AppState, Distros, LaunchPreview } from '../shared/api.js'
 import type { BranchDetail, BranchOverview, DiscoveredRepo, DiscoveryStatus, Location, OpError, Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, Root, ServiceStatus, Settings, StartupState } from '../shared/types.js'
 import { realpathSync } from 'node:fs'
@@ -16,6 +17,10 @@ import { draftProfile, fingerprint, isTrusted, planLaunch, readRuntimeFile, serv
 import { reconcile, Startup } from '../core/startup.js'
 import { newId, Store } from '../core/store.js'
 import * as v from '../core/validate.js'
+import type { ArtifactRef, AuditView, AuthState, CleanupPlan, OpenTarget, OperationResult, StorageSettings, StorageState } from '../shared/storage.js'
+import { validRepoName } from '../core/storage/config.js'
+import { GhCli } from '../core/storage/gh.js'
+import { StorageService } from '../core/storage/service.js'
 
 /** What the backend needs from the desktop shell. Electron provides it in main.ts; tests provide fakes. */
 export type Host = {
@@ -25,6 +30,8 @@ export type Host = {
   version: string
   /** Called after settings are saved or corrected (main.ts updates the tray). */
   settingsChanged?(settings: Settings): void
+  /** A system notification (optional; used for scheduled storage results when the user turned them on). */
+  notify?(title: string, body: string): void
 }
 
 const ok = <T>(value: T): Result<T> => ({ ok: true, value })
@@ -42,14 +49,21 @@ export class Backend {
   constructor(
     readonly store: Store,
     private readonly host: Host,
-    readonly opts: { os?: HostOs; git?: Git; services?: ServiceManager; readFile?: FileReader; discovery?: AutoDiscovery; home?: string; startup?: Startup } = {},
+    readonly opts: { os?: HostOs; git?: Git; services?: ServiceManager; readFile?: FileReader; discovery?: AutoDiscovery; home?: string; startup?: Startup; storage?: StorageService } = {},
   ) {
     this.services = opts.services ?? new ServiceManager({ os: opts.os })
     this.inspector = new BranchInspector()
     // GITMANAGER_HOME points discovery at another home folder (tests, or a user who keeps code elsewhere).
     this.discovery = opts.discovery ?? new AutoDiscovery(store, { os: opts.os ?? hostOs(), home: opts.home ?? process.env.GITMANAGER_HOME ?? homedir() })
     this.startup = opts.startup ?? new Startup(null, { platform: process.platform, packaged: false, execPath: process.execPath })
+    // GitHub access goes through the GitHub CLI's own sign-in; GitManager never sees or stores a token.
+    this.storage = opts.storage ?? new StorageService({
+      dir: dirname(store.file), gh: new GhCli(), config: () => store.data.storage, saveConfig: () => store.save(),
+      openExternal: u => host.openExternal(u), notify: (t, b) => host.notify?.(t, b),
+    })
   }
+
+  readonly storage: StorageService
 
   readonly inspector: BranchInspector
   readonly discovery: AutoDiscovery
@@ -418,5 +432,51 @@ export class Backend {
       this.host.settingsChanged?.(next)
     }
     return st
+  }
+
+  /* ------------------------------------------------------------ storage (GitHub Actions artifacts) */
+
+  private refs(raw: unknown): ArtifactRef[] {
+    if (!Array.isArray(raw) || raw.length > 20_000) throw new v.ValidationError('Invalid selection.')
+    return raw.map(x => {
+      const o = (x ?? {}) as Record<string, unknown>
+      if (!validRepoName(o.repo) || typeof o.id !== 'number' || !Number.isSafeInteger(o.id) || o.id <= 0) throw new v.ValidationError('Invalid artifact in the selection.')
+      return { repo: o.repo, id: o.id }
+    })
+  }
+
+  storageState(): StorageState { return this.storage.state() }
+  storageAuth(): Promise<AuthState> { return this.storage.refreshAuth() }
+  storageScan(): Promise<Result<{ started: true }>> { return this.storage.scan() as Promise<Result<{ started: true }>> }
+  storageCancel(): boolean { return this.storage.cancel() }
+  storageCandidates(): ArtifactRef[] { return this.storage.candidates() }
+  storagePreview(refs: unknown): CleanupPlan { return this.storage.preview(this.refs(refs)) }
+
+  /** Permanent deletion. Needs the explicit `confirm: true` of the cleanup preview; a dry run needs nothing and changes nothing. */
+  async storageDelete(refs: unknown, opts: unknown): Promise<Result<OperationResult>> {
+    const o = (opts ?? {}) as Record<string, unknown>
+    const dryRun = o.dryRun === true
+    if (!dryRun && o.confirm !== true) return err('NOT_CONFIRMED', 'Deleting artifacts needs your explicit confirmation.')
+    return this.storage.execute(this.refs(refs), { dryRun }) as Promise<Result<OperationResult>>
+  }
+
+  async storagePin(repo: unknown, artifactId: unknown, pinned: unknown): Promise<Result<void>> {
+    return this.storage.setPinned(String(repo), Number(artifactId), pinned === true) as Result<void>
+  }
+  async storageProtectRepo(repo: unknown, on: unknown): Promise<Result<void>> { return this.storage.setRepoProtected(String(repo), on === true) as Result<void> }
+  async storageSavePolicy(repo: unknown, policy: unknown, approve: unknown): Promise<Result<{ effective: string }>> {
+    return this.storage.savePolicy(repo === null ? null : String(repo), policy, approve === true) as Result<{ effective: string }>
+  }
+  async storageSaveSettings(settings: unknown): Promise<Result<void>> { return this.storage.saveSettings(settings as StorageSettings) as Result<void> }
+  async storageRunAutomation(): Promise<Result<{ scanned: string[]; deleted: number; recommended: number }>> { return ok(await this.storage.runAutomation()) }
+  storageDismissRecommendation() { this.storage.clearRecommendation() }
+  storageAudit(): AuditView { return this.storage.auditView() }
+  async storageOpen(target: unknown): Promise<Result<void>> {
+    const t = (target ?? {}) as Record<string, unknown>
+    const kind = t.kind
+    if (kind === 'run') return this.storage.open({ kind, repo: String(t.repo), runId: Number(t.runId) }) as Promise<Result<void>>
+    if (kind === 'repo-actions') return this.storage.open({ kind, repo: String(t.repo) }) as Promise<Result<void>>
+    if (kind === 'billing' || kind === 'billing-docs' || kind === 'scopes') return this.storage.open({ kind } as OpenTarget) as Promise<Result<void>>
+    return err('INVALID', 'Unknown link.')
   }
 }

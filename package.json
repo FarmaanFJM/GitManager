@@ -20,6 +20,7 @@
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "test": "vitest run",
     "test:e2e": "npm run build && node scripts/e2e.mjs",
+    "test:e2e:storage": "npm run build && node scripts/e2e-storage.mjs",
     "verify:summa-ui": "node scripts/summa-ui/verify-vendored.mjs third_party/summa-ui/guidance summa-ui.lock.json && node scripts/summa-ui/verify-reference.mjs summa-ui.lock.json",
     "record:usage": "node scripts/summa-ui/record-guidance-usage.mjs --app gitmanager --lock summa-ui.lock.json --repository https://github.com/FarmaanFJM/GitManager --out summa-ui.usage.json",
     "package:win": "npm run build && electron-builder --win --x64",

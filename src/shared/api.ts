@@ -4,6 +4,7 @@ import type {
   Branch, BranchDetail, BranchOverview, Commit, Comparison, DiscoveredRepo, DiscoveryStatus, IgnoredRepo, Location, LogBatch, LogLine,
   Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, Root, ServiceStatus, Settings, StartupState,
 } from './types.js'
+import type { ArtifactRef, AuditView, AuthState, CleanupPlan, OpenTarget, OperationResult, StorageSettings, StorageState } from './storage.js'
 
 export type AppState = {
   repos: Repo[]
@@ -28,6 +29,10 @@ export type ApiEvents = {
   'logs-cleared': string
   'discovery-status': DiscoveryStatus
   'repo-added': Repo
+  /** Scan, cleanup and schedule progress (small). */
+  'storage-status': Pick<StorageState, 'scan' | 'operation' | 'scheduler' | 'auth'>
+  /** The stored scan, alerts or settings changed; ask for storageState again. */
+  'storage-changed': null
 }
 
 export interface GitManagerApi {
@@ -83,6 +88,23 @@ export interface GitManagerApi {
   branchDetail(repoId: string, ref: string, baseRef: string): Promise<Result<BranchDetail>>
   setCompareBase(repoId: string, ref: string | null): Promise<Result<void>>
 
+  storageState(): Promise<StorageState>
+  storageAuth(): Promise<AuthState>
+  storageScan(): Promise<Result<{ started: true }>>
+  storageCancel(): Promise<boolean>
+  storageCandidates(): Promise<ArtifactRef[]>
+  storagePreview(refs: ArtifactRef[]): Promise<CleanupPlan>
+  /** Deletes permanently. Refused unless `confirm` is true (or `dryRun`, which changes nothing). */
+  storageDelete(refs: ArtifactRef[], opts: { dryRun: boolean; confirm: boolean }): Promise<Result<OperationResult>>
+  storagePin(repo: string, artifactId: number, pinned: boolean): Promise<Result<void>>
+  storageProtectRepo(repo: string, on: boolean): Promise<Result<void>>
+  storageSavePolicy(repo: string | null, policy: unknown, approve: boolean): Promise<Result<{ effective: string }>>
+  storageSaveSettings(settings: StorageSettings): Promise<Result<void>>
+  storageRunAutomation(): Promise<Result<{ scanned: string[]; deleted: number; recommended: number }>>
+  storageDismissRecommendation(): Promise<void>
+  storageAudit(): Promise<AuditView>
+  storageOpen(target: OpenTarget): Promise<Result<void>>
+
   on<K extends keyof ApiEvents>(event: K, cb: (payload: ApiEvents[K]) => void): () => void
 }
 
@@ -93,4 +115,6 @@ export const API_METHODS = [
   'scanRoot', 'addRepos', 'draftProfile', 'saveProfile', 'removeProfile', 'selectProfile', 'previewLaunch', 'trustProfile',
   'startServices', 'stopServices', 'restartService', 'logs', 'clearLogs', 'saveSettings', 'startupState',
   'discoveryStatus', 'rescan', 'unignoreRepo', 'branchOverview', 'branchDetail', 'setCompareBase',
+  'storageState', 'storageAuth', 'storageScan', 'storageCancel', 'storageCandidates', 'storagePreview', 'storageDelete', 'storagePin', 'storageProtectRepo',
+  'storageSavePolicy', 'storageSaveSettings', 'storageRunAutomation', 'storageDismissRecommendation', 'storageAudit', 'storageOpen',
 ] as const satisfies readonly Exclude<keyof GitManagerApi, 'on'>[]
