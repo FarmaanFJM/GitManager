@@ -44,6 +44,20 @@ const shot = async name => { await page.screenshot({ path: join(OUT, `${name}.pn
 const summa = async name => { const r = await runSummaChecks(page); report.summaChecks[name] = r; const fails = r.findings.filter(f => f.status === 'fail'); console.log(`     Summa-UI checks on ${name}: ${fails.length} fail, ${r.findings.length - fails.length} needs-human`); return fails }
 const ghLog = () => readFileSync(logFile, 'utf8').split('\n').filter(Boolean)
 const idle = () => page.waitForFunction(() => !document.querySelector('.gm-top [aria-busy="true"]'), null, { timeout: 120000 })
+/** The manager's state as the page sees it (window.gitmanager is the preload bridge). */
+const runnersState = () => page.evaluate(() => window.gitmanager.runnersState())
+/** Polls the manager's state from here: an async predicate handed to waitForFunction would be read as a truthy promise. */
+async function waitState(pred, what, ms = 120000) {
+  const end = Date.now() + ms
+  while (Date.now() < end) { const st = await runnersState(); if (pred(st)) return st; await page.waitForTimeout(250) }
+  throw new Error(`timed out waiting for ${what}`)
+}
+/** Clicks Scan and waits for that scan to finish, judged by the manager's own state rather than by the button, which could be read before the scan had started. */
+async function scanAll() {
+  const before = (await runnersState()).inventory.githubScannedAt
+  await page.getByRole('button', { name: /^Scan/ }).first().click()
+  await waitState(s => !s.scan.running && s.inventory.githubScannedAt !== null && s.inventory.githubScannedAt !== before, 'the scan to read GitHub')
+}
 const stat = async label => (await page.locator('.gm-stat', { hasText: label }).locator('dd').innerText()).trim()
 const rowNames = () => page.locator('.gm-rrow .gm-rname .truncate').allInnerTexts()
 const tab = name => page.getByRole('tab', { name: new RegExp(`^${name}`) }).click()
@@ -58,7 +72,7 @@ try {
   await shot('00-tools')
   await page.locator('.gm-tool', { hasText: 'Runners' }).click()
   await page.waitForSelector('.gm-rstats')
-  await idle()
+  await waitState(s => !s.scan.running && s.inventory.localScannedAt !== null, 'the startup scan')
   check(!(await rowNames()).includes('build-box') && !(await page.locator('.gm-rrow').count() || (await page.locator('.sm-empty__text').innerText()).includes('Scan')), 'the startup scan read only the common folders, so the fixture installation is not listed yet', (await rowNames()).join(', '))
   check(await page.locator('text=GitHub has not been read yet').count() === 1, 'it says GitHub was not read yet instead of showing zero online runners as a fact')
   check(ghLog().filter(l => !l.startsWith('GET /user')).length === 0, 'opening the tool made no GitHub request beyond the sign-in check', ghLog().join(', '))
@@ -74,8 +88,7 @@ try {
   await shot('02-discovery-settings')
 
   // ---- full scan
-  await page.getByRole('button', { name: /^Scan/ }).first().click()
-  await idle()
+  await scanAll()
   await tab('Runners')
   await page.waitForSelector('.gm-rrow')
   const names = await rowNames()
@@ -283,7 +296,7 @@ try {
 } finally {
   writeFileSync(join(OUT, 'report.json'), JSON.stringify(report, null, 2))
   try { await Promise.race([app?.close(), new Promise(r => setTimeout(r, 15000))]) } catch { /* ignore */ }
-  rmSync(work, { recursive: true, force: true })
+  if (process.env.E2E_KEEP_WORK) console.log(`work folder kept: ${work}`); else rmSync(work, { recursive: true, force: true })
   if (!existsSync(OUT)) mkdirSync(OUT, { recursive: true })
   console.log(`\n${report.steps.filter(s => s.ok).length}/${report.steps.length} steps passed; report in ${OUT}`)
   process.exit(report.ok ? 0 : 1)
