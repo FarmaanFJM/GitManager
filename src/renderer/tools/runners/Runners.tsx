@@ -39,9 +39,13 @@ function AuthNotice({ st }: { st: RunnersState }) {
 export function RunnersView({ onBack }: { model: Model; actions: Actions; onBack: () => void }) {
   const { state: st } = useRunnersState()
   const [tab, setTab] = useState<Tab>('runners')
-  const [selected, setSelected] = useState<string | null>(null)
+  // A row's key changes when reconciliation pairs a local installation with its GitHub record (or a registration is removed),
+  // so the selection also remembers the installation's own key and follows the row across that change.
+  const [sel, setSel] = useState<{ key: string; localKey: string | null } | null>(null)
   // The installation just made: selected as soon as the inventory lists it (the manager re-inspects the folder after the job reports done).
   const [pendingKey, setPendingKey] = useState<string | null>(null)
+  const findRow = (s: { key: string; localKey: string | null } | null) => (s && st ? st.inventory.runners.find(r => r.key === s.key || (s.localKey !== null && r.local?.key === s.localKey)) ?? null : null)
+  const select = (key: string | null) => { if (!key) { setSel(null); return } const r = st?.inventory.runners.find(x => x.key === key); setSel({ key, localKey: r?.local?.key ?? null }) }
   const [add, setAdd] = useState(false)
   const [banner, setBanner] = useState<OpError | null>(null)
   const [result, setResult] = useState<ActionResult | null>(null)
@@ -60,11 +64,16 @@ export function RunnersView({ onBack }: { model: Model; actions: Actions; onBack
     ro.observe(el)
     return () => ro.disconnect()
   }, [st === null, tab])
-  useEffect(() => { if (selected && st && !st.inventory.runners.some(r => r.key === selected)) setSelected(null) }, [st, selected])
+  useEffect(() => {
+    if (!sel || !st) return
+    const r = findRow(sel)
+    if (!r) setSel(null)
+    else if (r.key !== sel.key || (r.local && r.local.key !== sel.localKey)) setSel({ key: r.key, localKey: r.local?.key ?? sel.localKey })
+  }, [st, sel]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!pendingKey || !st) return
     const r = st.inventory.runners.find(x => x.local?.key === pendingKey)
-    if (r) { setSelected(r.key); setPendingKey(null) }
+    if (r) { setSel({ key: r.key, localKey: pendingKey }); setPendingKey(null) }
   }, [st, pendingKey])
 
   if (!st) return <div className="gm-work"><header className="gm-top"><DrawerToggle /><h1 className="gm-h1">Runners</h1></header><div className="gm-loading-line"><span className="sm-spinner" aria-hidden="true" /> Loading</div></div>
@@ -75,7 +84,8 @@ export function RunnersView({ onBack }: { model: Model; actions: Actions; onBack
     const r = await api.runnersScan({ localOnly })
     if (!r.ok) setBanner({ code: r.error.code, message: r.error.message }); else setBanner(null)
   }
-  const runner = inv.runners.find(r => r.key === selected) ?? null
+  const runner = findRow(sel)
+  const selected = runner?.key ?? null
 
   const act = async (r: Runner, action: RunnerAction) => {
     const opts: ActionOptions = {}
@@ -168,14 +178,14 @@ export function RunnersView({ onBack }: { model: Model; actions: Actions; onBack
             </div>
           ) : (
             <>
-              {!(stacked && runner) && <RunnerTable inv={inv} selected={selected} busy={st.busy} onSelect={k => setSelected(k === selected && !stacked ? null : k)} onAction={(r, a) => void act(r, a)} />}
-              {runner && <RunnerDetail runner={runner} busy={st.busy[runner.local?.key ?? runner.key]} toast={toast} onClose={() => setSelected(null)} onAction={a => void act(runner, a)} stacked={stacked || !wide} />}
+              {!(stacked && runner) && <RunnerTable inv={inv} selected={selected} busy={st.busy} onSelect={k => select(k === selected && !stacked ? null : k)} onAction={(r, a) => void act(r, a)} />}
+              {runner && <RunnerDetail runner={runner} busy={st.busy[runner.local?.key ?? runner.key]} toast={toast} onClose={() => setSel(null)} onAction={a => void act(runner, a)} stacked={stacked || !wide} />}
             </>
           )}
           {inv.runners.length === 0 && scanning && <div className="gm-loading-line"><span className="sm-spinner" aria-hidden="true" /> Scanning</div>}
         </div>
       )}
-      {tab === 'workflows' && <WorkflowsTab st={st} toast={toast} onOpenRunner={k => { setSelected(k); setTab('runners') }} />}
+      {tab === 'workflows' && <WorkflowsTab st={st} toast={toast} onOpenRunner={k => { select(k); setTab('runners') }} />}
       {tab === 'discovery' && <DiscoveryTab st={st} toast={toast} />}
 
       <AddRunnerDialog open={add} st={st} toast={toast} onClose={() => setAdd(false)} onInstalled={k => setPendingKey(k)} />
