@@ -9,6 +9,7 @@
 //  - Recoverable deletion is the default. When it is unavailable or fails, nothing is deleted until the caller asks for a
 //    permanent deletion with a separate confirmation; there is no automatic fallback.
 //  - Success is claimed only after the file system confirms the folder is gone; otherwise the remainder is reported.
+import path from 'node:path'
 import type { DeleteOutcome, DeletionFacts, DeletionReport, Location, Repo, TrashSupport } from '../shared/types.js'
 import type { RunnerHost } from '../shared/runners.js'
 import type { HostShell } from './runners/hosts.js'
@@ -193,7 +194,14 @@ export class RepoDeleter {
     const real = await this.realPath(loc, shell, norm)
     base.resolvedPath = real
     if (real === null) warnings.push('The real location of the folder could not be resolved, so links in its path could not be ruled out.')
-    else if (this.comparable(real, win) !== this.comparable(norm, win)) blockers.push(`The path is, or passes through, a symbolic link or junction (it resolves to ${real}). Register the real folder to delete it; GitManager will not delete through a link.`)
+    else {
+      // Only the folder itself may not be a link. Differences higher up (8.3 short names on Windows, /tmp -> /private/tmp on macOS, a
+      // symlinked /home) change how the path is spelled, not what deleting this folder removes, so the parent is resolved first.
+      const lib = win ? path.win32 : path.posix
+      const realParent = await this.realPath(loc, shell, lib.dirname(norm))
+      const expected = realParent === null ? norm : lib.join(realParent, lib.basename(norm))
+      if (this.comparable(real, win) !== this.comparable(expected, win)) blockers.push(`The folder is a symbolic link or junction (it resolves to ${real}). Register the real folder to delete it; GitManager will not delete through a link.`)
+    }
 
     // must be the root of a working tree
     const gitEntry = norm + sep + '.git'

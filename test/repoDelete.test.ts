@@ -8,6 +8,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { Backend, type Host } from '../src/main/backend.js'
 import { AutoDiscovery } from '../src/core/autodiscovery.js'
 import { Git, type GitRun } from '../src/core/git/ops.js'
+import { normalizePath } from '../src/core/paths.js'
 import { protectedPathReason } from '../src/core/repoDelete.js'
 import { NativeShell, type HostShell } from '../src/core/runners/hosts.js'
 import type { ServiceManager } from '../src/core/processes.js'
@@ -19,7 +20,7 @@ import { git as g, isolateGitConfig } from './helpers.js'
 beforeAll(isolateGitConfig)
 let dirs: string[] = []
 afterEach(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); dirs = [] })
-const tmp = (p: string) => { const d = realpathSync(mkdtempSync(join(tmpdir(), p))); dirs.push(d); return d }
+const tmp = (p: string) => { const d = realpathSync.native(mkdtempSync(join(tmpdir(), p))); dirs.push(d); return d }
 
 function mkrepo(parent: string, name: string, o: { commit?: boolean } = {}) {
   const dir = join(parent, name); mkdirSync(dir, { recursive: true })
@@ -118,7 +119,7 @@ describe('path protection', () => {
   })
   it('blocks a symbolic link, a submodule folder, and a folder that is not a repository root', async () => {
     const { b, code, add } = setup()
-    const real = mkrepo(code, 'real'); const link = join(code, 'link'); symlinkSync(real, link, 'dir')
+    const real = mkrepo(code, 'real'); const link = join(code, 'link'); symlinkSync(real, link, process.platform === 'win32' ? 'junction' : 'dir')
     expect((await b.deletionPreview(add(link).id) as { ok: true; value: { blockers: string[] } }).value.blockers.join(' ')).toMatch(/symbolic link or junction/)
     const r = await b.deleteRepoFolder(add(link).id, { confirmPath: link }); expect(r).toMatchObject({ ok: false, error: { code: 'REFUSED' } }); expect(existsSync(real)).toBe(true)
     const sub = join(code, 'subm'); mkdirSync(sub); writeFileSync(join(sub, '.git'), 'gitdir: /x/.git/modules/subm\n')
@@ -141,7 +142,7 @@ describe('path protection', () => {
     const main = mkrepo(code, 'main'); const wt = join(code, 'main-wt'); g(main, 'worktree', 'add', '-q', '-b', 'feature', wt)
     const mainRepo = add(main), wtRepo = add(wt, { worktree: true })
     const pm = await b.deletionPreview(mainRepo.id); if (!pm.ok) throw new Error()
-    expect(pm.value.linkedWorktrees).toMatchObject([{ path: wt, exists: true, inside: false }]); expect(pm.value.blockers.join(' ')).toMatch(/linked worktree of this repository exists outside it/)
+    expect(pm.value.linkedWorktrees.map(w => ({ ...w, path: normalizePath(w.path) }))).toMatchObject([{ path: normalizePath(wt), exists: true, inside: false }]); expect(pm.value.blockers.join(' ')).toMatch(/linked worktree of this repository exists outside it/)
     expect(await b.deleteRepoFolder(mainRepo.id, { confirmPath: main })).toMatchObject({ ok: false, error: { code: 'REFUSED' } }); expect(existsSync(join(main, '.git'))).toBe(true)
     const pw = await b.deletionPreview(wtRepo.id); if (!pw.ok) throw new Error()
     expect(pw.value.worktreeOf).toBe(main); expect(pw.value.blockers).toEqual([]); expect(pw.value.warnings.join(' ')).toMatch(/linked worktree of /)
@@ -310,7 +311,7 @@ describe('WSL repositories', () => {
     expect(p.value.facts).toMatchObject({ ahead: 3, upstream: 'origin/main', stashes: 1, changes: { unstaged: 1, untracked: 1 } }); expect(p.value.losesWork).toBe(true)
     const home = repo('/home/farmaan'); expect((await b.deletionPreview(home.id) as { ok: true; value: { blockers: string[] } }).value.blockers.join(' ')).toMatch(/home folder/)
     wsl.realpaths['/home/farmaan/code/app'] = '/data/app'
-    expect((await b.deletionPreview(r.id) as { ok: true; value: { blockers: string[] } }).value.blockers.join(' ')).toMatch(/symbolic link or junction \(it resolves to \/data\/app\)/)
+    expect((await b.deletionPreview(r.id) as { ok: true; value: { blockers: string[] } }).value.blockers.join(' ')).toMatch(/folder is a symbolic link or junction \(it resolves to \/data\/app\)/)
     delete wsl.realpaths['/home/farmaan/code/app']; wsl.dirs.delete('/home/farmaan/code/app')
     expect(await b.deleteRepoFolder(r.id, { confirmPath: '/home/farmaan/code/app' })).toMatchObject({ ok: true, value: { alreadyGone: true } })
     expect(store.data.repos.map(x => x.location.path)).toEqual(['/home/farmaan'])
