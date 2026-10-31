@@ -43,7 +43,6 @@ async function launch() {
 const shot = async name => { await page.screenshot({ path: join(OUT, `${name}.png`) }) }
 const summa = async name => { const r = await runSummaChecks(page); report.summaChecks[name] = r; const fails = r.findings.filter(f => f.status === 'fail'); console.log(`     Summa-UI checks on ${name}: ${fails.length} fail, ${r.findings.length - fails.length} needs-human`); return fails }
 const ghLog = () => readFileSync(logFile, 'utf8').split('\n').filter(Boolean)
-const idle = () => page.waitForFunction(() => !document.querySelector('.gm-top [aria-busy="true"]'), null, { timeout: 120000 })
 /** The manager's state as the page sees it (window.gitmanager is the preload bridge). */
 const runnersState = () => page.evaluate(() => window.gitmanager.runnersState())
 /** Polls the manager's state from here: an async predicate handed to waitForFunction would be read as a truthy promise. */
