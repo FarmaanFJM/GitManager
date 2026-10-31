@@ -40,6 +40,8 @@ export function RunnersView({ onBack }: { model: Model; actions: Actions; onBack
   const { state: st } = useRunnersState()
   const [tab, setTab] = useState<Tab>('runners')
   const [selected, setSelected] = useState<string | null>(null)
+  // The installation just made: selected as soon as the inventory lists it (the manager re-inspects the folder after the job reports done).
+  const [pendingKey, setPendingKey] = useState<string | null>(null)
   const [add, setAdd] = useState(false)
   const [banner, setBanner] = useState<OpError | null>(null)
   const [result, setResult] = useState<ActionResult | null>(null)
@@ -59,6 +61,11 @@ export function RunnersView({ onBack }: { model: Model; actions: Actions; onBack
     return () => ro.disconnect()
   }, [st === null, tab])
   useEffect(() => { if (selected && st && !st.inventory.runners.some(r => r.key === selected)) setSelected(null) }, [st, selected])
+  useEffect(() => {
+    if (!pendingKey || !st) return
+    const r = st.inventory.runners.find(x => x.local?.key === pendingKey)
+    if (r) { setSelected(r.key); setPendingKey(null) }
+  }, [st, pendingKey])
 
   if (!st) return <div className="gm-work"><header className="gm-top"><DrawerToggle /><h1 className="gm-h1">Runners</h1></header><div className="gm-loading-line"><span className="sm-spinner" aria-hidden="true" /> Loading</div></div>
 
@@ -171,7 +178,7 @@ export function RunnersView({ onBack }: { model: Model; actions: Actions; onBack
       {tab === 'workflows' && <WorkflowsTab st={st} toast={toast} onOpenRunner={k => { setSelected(k); setTab('runners') }} />}
       {tab === 'discovery' && <DiscoveryTab st={st} toast={toast} />}
 
-      <AddRunnerDialog open={add} st={st} toast={toast} onClose={() => setAdd(false)} onInstalled={k => { if (k) { const r = st.inventory.runners.find(x => x.local?.key === k); if (r) setSelected(r.key) } }} />
+      <AddRunnerDialog open={add} st={st} toast={toast} onClose={() => setAdd(false)} onInstalled={k => setPendingKey(k)} />
       <Dialog open={!!result} onClose={() => setResult(null)} title={result?.ok ? 'Done' : 'Not completed'} width={560} footer={<Button variant="primary" data-autofocus onClick={() => setResult(null)}>Close</Button>}>
         {result && (
           <div className="gm-plan">
