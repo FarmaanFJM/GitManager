@@ -127,18 +127,18 @@ describe('pull while services run, Sync with Remote and worktrees', () => {
     if (!draft.ok) throw new Error('draft')
     const base = draft.value.services[0]
     const mk = (id: string, name: string, cwd: string, command: string) => ({ ...base, id, name, cwd, command })
-    // Stand-ins for mvn and npm that just stay alive, so the real commands (and their classification) are what the profile holds.
-    const bin = tempDir('gm-bin-')
-    for (const t of ['mvn', 'npm']) { writeFileSync(join(bin.dir, t), '#!/bin/sh\nexec sleep 300\n', { mode: 0o755 }) }
-    const oldPath = process.env.PATH
-    process.env.PATH = `${bin.dir}:${oldPath}`
-    cleanups.push(() => { process.env.PATH = oldPath; bin.cleanup() })
-    const saved = await b.saveProfile({ ...draft.value, services: [mk('be', 'Backend', 'backend', 'mvn spring-boot:run'), mk('fe', 'Frontend', 'frontend', 'npm run dev')] })
+    // Stand-ins that just stay alive, in the service folders, so the real command shapes (./mvnw, ./vite) are what the profile holds.
+    // (A login shell rebuilds PATH, so a shim on PATH would lose to a real mvn or npm installed on the machine.)
+    writeFileSync(join(f.local, 'backend', 'mvnw'), '#!/bin/sh\nexec sleep 300\n', { mode: 0o755 })
+    writeFileSync(join(f.local, 'frontend', 'vite'), '#!/bin/sh\nexec sleep 300\n', { mode: 0o755 })
+    git(f.local, 'add', '-A'); git(f.local, 'commit', '-q', '-m', 'shims'); git(f.local, 'push', '-q'); git(f.other, 'pull', '-q')
+    await new Promise(r => setTimeout(r, 300)) // a just-written executable can be 'text file busy' while other processes fork
+    const saved = await b.saveProfile({ ...draft.value, services: [mk('be', 'Backend', 'backend', './mvnw spring-boot:run'), mk('fe', 'Frontend', 'frontend', './vite')] })
     if (!saved.ok) throw new Error('save')
     await b.trustProfile(saved.value.id)
     const started = await b.startServices(saved.value.id)
     expect(started.ok).toBe(true)
-    await until(async () => b.services.list().every(s => s.pid !== null) && b.services.list().length === 2)
+    for (const sid of ['be', 'fe']) { const st = await b.services.settled(`${saved.value.id}:${sid}`, { aliveMs: 500 }); expect(`${st?.state} ${st?.message ?? ''}`).toBe('running ') }
 
     commit(f.other, 'backend/pom.xml', '<p>changed</p>', 'dependency'); commit(f.other, 'frontend/app.ts', '2', 'ui')
     git(f.other, 'push', '-q')
