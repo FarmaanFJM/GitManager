@@ -121,6 +121,8 @@ try {
   const before = Object.fromEntries(world.repos.map(r => [r.full, ids(r.full)]))
   await page.locator('.gm-top').getByRole('button', { name: 'Review cleanup' }).click()
   await page.waitForSelector('.gm-cleanup')
+  // The candidates arrive a moment after the view opens; read the summary once it counts something (a slower runner showed 0 artifacts here)
+  await page.waitForFunction(() => /[1-9]\d* artifacts/.test(document.querySelector('.gm-cleanup-sum')?.textContent ?? ''), null, { timeout: 15000 })
   const sum = await text('.gm-cleanup-sum')
   const count = Number(/(\d+) artifacts/.exec(sum)[1])
   check(count > 10 && /recovers/.test(sum), 'the preview states how many artifacts and how much space', sum)
