@@ -47,7 +47,7 @@ export function RunnerDetail({ runner: r, busy, toast, onClose, onAction, stacke
   const toggle = (v: View) => () => setView(cur => (cur === v ? null : v))
   const restartDisabled = !c.restart.allowed || !!busy
   const outcome = restartResult ? restartOutcome(restartResult) : null
-  const viewButton = (v: View, label: string) => <Button variant={view === v ? 'primary' : 'secondary'} aria-pressed={view === v} onClick={toggle(v)}>{label}</Button>
+  const viewButton = (v: View, label: string) => <Button variant="secondary" className={view === v ? 'gm-on' : ''} aria-pressed={view === v} onClick={toggle(v)}>{label}</Button>
   const menu: MenuEntry[] = [
     running ? { label: 'Stop', icon: 'stop', disabled: !c.stop.allowed || !!busy, onSelect: act('stop') } : { label: 'Start', icon: 'play', disabled: !c.start.allowed || !!busy, onSelect: act('start') },
     { label: 'Inspect service state', icon: 'activity', disabled: !c.inspect.allowed || !!busy, onSelect: act('inspect') },

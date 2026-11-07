@@ -114,8 +114,7 @@ export function ServicesPanel({ model, actions, repo, onError, toast }: { model:
 
   if (!profile) return (
     <div className="sm-empty gm-panel-empty">
-      <h2 className="gm-section-h">Development services</h2>
-      <p className="sm-empty__text">No development profile yet. Add the commands that start this project.</p>
+      <p className="sm-empty__text">No profile</p>
       <Button variant="primary" icon="plus" onClick={() => void newProfile()}>Create profile</Button>
     </div>
   )

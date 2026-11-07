@@ -30,3 +30,4 @@
 @container rt (max-width: 680px) {
   .gm-rtab .gm-rtable2 .gm-rrow { grid-template-columns: minmax(0, 1fr) auto 32px; grid-template-areas: "name status act" "scope scope act"; }
 }
+.gm-rdetail .btn.gm-on { background: var(--select); color: var(--text); }
