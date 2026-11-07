@@ -15,8 +15,8 @@ export type DockApi = {
 }
 
 const THEME = {
-  background: '#1b1c1c', foreground: '#dcdedc', cursor: '#dcdedc', cursorAccent: '#1b1c1c', selectionBackground: '#3a3d3c',
-  black: '#1b1c1c', red: '#ef7070', green: '#34c38f', yellow: '#d9b45b', blue: '#7aa2d6', magenta: '#b58fd1', cyan: '#6fc0bd', white: '#dcdedc',
+  background: '#232424', foreground: '#dcdedc', cursor: '#dcdedc', cursorAccent: '#232424', selectionBackground: '#3f4141',
+  black: '#232424', red: '#ef7070', green: '#34c38f', yellow: '#d9b45b', blue: '#7aa2d6', magenta: '#b58fd1', cyan: '#6fc0bd', white: '#dcdedc',
   brightBlack: '#6f7473', brightRed: '#f58a8a', brightGreen: '#52d6a3', brightYellow: '#e6c776', brightBlue: '#95b8e3', brightMagenta: '#c9a8de', brightCyan: '#8fd3d0', brightWhite: '#f2f4f2',
 }
 
