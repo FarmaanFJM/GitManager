@@ -1,7 +1,7 @@
 name: Release
 
 # Builds the Windows installer and portable zip from the tagged commit and publishes them as a GitHub release.
-#   git tag v1.0.0 && git push origin v1.0.0
+#   git tag v1.0.1 && git push origin v1.0.1
 # The tag must be v<version> of package.json, and the tagged commit must be on main. A failed check stops the release
 # before anything is built or published. Run it again for an existing tag with workflow_dispatch (the tag input).
 
@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing tag to build and publish, for example v1.0.0'
+        description: 'Existing tag to build and publish, for example v1.0.1'
         required: true
 
 permissions:
@@ -33,7 +33,7 @@ jobs:
     steps:
       - name: The tag name is a version tag
         run: |
-          case "$TAG" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "::error::'$TAG' is not a version tag like v1.0.0"; exit 1 ;; esac
+          case "$TAG" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "::error::'$TAG' is not a version tag like v1.0.1"; exit 1 ;; esac
       - uses: actions/checkout@v5
         with:
           ref: refs/tags/${{ github.event.inputs.tag || github.ref_name }}

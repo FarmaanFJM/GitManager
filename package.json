@@ -1,7 +1,7 @@
 {
   "name": "gitmanager",
   "productName": "GitManager",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Desktop workspace for managing local Git repositories and launching development services. Built with Summa-UI.",
   "license": "MIT",
   "author": "FarmaanFJM",

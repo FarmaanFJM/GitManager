@@ -2,7 +2,7 @@
 // Release consistency check: the application version, the Git tag and the built Windows artifacts must agree.
 //
 //   node scripts/versioning/check.mjs                         package.json and package-lock.json agree (and the tag, when one is given or implied)
-//   node scripts/versioning/check.mjs --tag v1.0.0            ... and the tag is exactly v<version>
+//   node scripts/versioning/check.mjs --tag v1.0.1            ... and the tag is exactly v<version>
 //   node scripts/versioning/check.mjs --artifacts release     ... and the files in release/ carry that version: names, and the version
 //                                                            resource of the installer and of win-unpacked/GitManager.exe
 // On a tag build (GITHUB_REF_TYPE=tag) the tag is taken from GITHUB_REF_NAME. Exit code 1 lists every mismatch.
