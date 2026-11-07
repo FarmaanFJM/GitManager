@@ -117,7 +117,8 @@ describe.skipIf(!linux)('port occupied by an outside process', () => {
 })
 
 describe('pull while services run, Sync with Remote and worktrees', () => {
-  it('suggests a restart only for the service the change affects', async () => {
+  // The stand-in services are POSIX shell scripts.
+  it.skipIf(process.platform === 'win32')('suggests a restart only for the service the change affects', async () => {
     const { b, repo, f } = await setup()
     mkdirSync(join(f.local, 'backend'), { recursive: true }); mkdirSync(join(f.local, 'frontend'), { recursive: true })
     writeFileSync(join(f.local, 'backend', 'pom.xml'), '<p/>'); writeFileSync(join(f.local, 'frontend', 'app.ts'), '1')
