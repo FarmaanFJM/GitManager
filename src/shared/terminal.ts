@@ -46,6 +46,8 @@ export type TerminalInfo = {
   /** Null while running (and when the platform gave none). */
   exitCode: number | null
   startedAt: string
+  /** What the tab was opened for, so New tab and Reopen start in the same place. Set by the application, not by the PTY layer. */
+  target?: TerminalTarget
   /** Filled by TerminalManager.inspect(): true/false when known, undefined when never checked or not detectable. */
   hasChildren?: boolean
 }

@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { readdirSync, readFileSync } from 'node:fs'
 import { StringDecoder } from 'node:string_decoder'
-import type { LogBatch, LogLine, ServiceStatus } from '../shared/types.js'
+import type { LogBatch, LogLine, Runtime, ServiceStatus } from '../shared/types.js'
 import { decodeOutput, hostOs, programSpec, run, type ExecSpec, type HostOs } from './exec.js'
 import type { Launch } from './profiles.js'
 import { describeReadiness, probe } from './readiness.js'
@@ -319,6 +319,19 @@ export class ServiceManager extends EventEmitter {
     const started = await this.restart(key)
     if (!started) return undefined
     return this.settled(key, opts)
+  }
+
+  /** Live processes GitManager started: the native child pid, or for WSL the process-group leader inside the distribution (never the wsl.exe pid). */
+  managed(): { serviceKey: string; repoId: string; runtime: Runtime; pid: number; env: Record<string, string> }[] {
+    const out: { serviceKey: string; repoId: string; runtime: Runtime; pid: number; env: Record<string, string> }[] = []
+    for (const e of this.entries.values()) {
+      if (!this.isAlive(e.launch.key)) continue
+      const wsl = e.launch.runtime.kind === 'wsl'
+      const pid = wsl ? e.pgid : e.child?.pid ?? null
+      if (!pid) continue
+      out.push({ serviceKey: e.launch.key, repoId: e.launch.repoId, runtime: e.launch.runtime, pid, env: e.spawnEnv ?? { ...e.launch.env } })
+    }
+    return out
   }
 
   /** The environment a service was last launched with, exactly as passed to the process (the base is this app's environment on the host; inside WSL only the service's own variables are known). */

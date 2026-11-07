@@ -28,6 +28,16 @@ import { RunnerManager } from '../core/runners/manager.js'
 import { validOwner, validRepoFull } from '../core/runners/model.js'
 import { shellFor as runnerShellFor, validSshAlias, type HostShell } from '../core/runners/hosts.js'
 import { RepoDeleter } from '../core/repoDelete.js'
+import { DevTools } from './devtools.js'
+import { SyncService } from '../core/git/sync.js'
+import { WorktreeService } from '../core/git/worktrees.js'
+import { changedFiles, summarizeAffected } from '../core/affected.js'
+import { inspectDependencies } from '../core/runners/deps.js'
+import { readConfigFiles } from '../core/procs/env.js'
+import type { AffectedSummary, SyncPlan, SyncResult, WorktreeInfo, WorktreeRemovalCheck } from '../shared/gitflow.js'
+import type { DependencyReport } from '../shared/deps.js'
+import type { ConfigFileEnv, EnvSnapshot, PortConflict, ProcsSnapshot, StopResult } from '../shared/procs.js'
+import type { ShellOption, TerminalCloseResult, TerminalInfo, TerminalNote } from '../shared/terminal.js'
 
 /** What the backend needs from the desktop shell. Electron provides it in main.ts; tests provide fakes. */
 export type Host = {
@@ -58,7 +68,7 @@ export class Backend {
   constructor(
     readonly store: Store,
     private readonly host: Host,
-    readonly opts: { os?: HostOs; git?: Git; services?: ServiceManager; readFile?: FileReader; discovery?: AutoDiscovery; home?: string; startup?: Startup; storage?: StorageService; runners?: RunnerManager; shellFor?: (loc: Location) => HostShell } = {},
+    readonly opts: { os?: HostOs; git?: Git; services?: ServiceManager; readFile?: FileReader; discovery?: AutoDiscovery; home?: string; startup?: Startup; storage?: StorageService; runners?: RunnerManager; dev?: DevTools; sync?: SyncService; worktrees?: WorktreeService; shellFor?: (loc: Location) => HostShell } = {},
   ) {
     this.services = opts.services ?? new ServiceManager({ os: opts.os })
     this.inspector = new BranchInspector()
@@ -75,10 +85,19 @@ export class Backend {
       dir: dirname(store.file), gh: new GhCli({ profile: 'runners' }), config: () => store.data.runners, saveConfig: () => store.save(), os: opts.os ?? hostOs(), tmpDir: tmpdir(),
       repos: () => store.data.repos, openExternal: u => host.openExternal(u), openPath: p => host.openPath(p),
     })
+    this.sync = opts.sync ?? new SyncService(undefined, this.inspector)
+    this.worktrees = opts.worktrees ?? new WorktreeService()
+    this.dev = opts.dev ?? new DevTools({
+      store, services: this.services, os: opts.os ?? hostOs(), findRunner: k => this.runners.find(k),
+      worktreePaths: async repo => { const r = await this.worktrees.list(repo.location); return r.ok ? r.value.map(w => w.path) : [] },
+    })
   }
 
   readonly storage: StorageService
   readonly runners: RunnerManager
+  readonly sync: SyncService
+  readonly worktrees: WorktreeService
+  readonly dev: DevTools
 
   readonly inspector: BranchInspector
   readonly discovery: AutoDiscovery
@@ -223,11 +242,145 @@ export class Backend {
 
   async pull(id: unknown) {
     const repo = this.repo(id)
-    return this.exclusive(repo.id, async (): Promise<Result<{ commits: number }>> => {
+    return this.exclusive(repo.id, async (): Promise<Result<{ commits: number; affected: AffectedSummary | null }>> => {
       const r = await this.git.pull(repo.location)
       this.inspector.invalidate(repo.id)
-      return r.ok ? ok({ commits: r.value.commits }) : r
+      if (!r.ok) return r
+      return ok({ commits: r.value.commits, affected: await this.affectedBy(repo, r.value.from, r.value.to) })
     })
+  }
+
+  /** After a pull: which running services of this repository may need a restart, judged from the files that actually changed. */
+  private async affectedBy(repo: Repo, from: string, to: string): Promise<AffectedSummary | null> {
+    if (!from || !to || from === to) return null
+    const running = this.services.activeForRepo(repo.id)
+    if (!running.length) return null
+    const changed = await changedFiles(repo.location, from, to)
+    if (!changed.ok) return null
+    const parts: AffectedSummary[] = []
+    for (const p of this.store.profilesFor(repo.id)) {
+      const live = p.services.filter(sv => running.some(x => x.profileId === p.id && x.serviceId === sv.id))
+      if (live.length) parts.push(summarizeAffected(changed.value.files, live, p.workingDir, { truncated: changed.value.truncated }))
+    }
+    if (!parts.length) return null
+    const services = parts.flatMap(x => x.services)
+    const attention = services.filter(x => x.verdict === 'restart-needed' || x.verdict === 'restart-suggested')
+    const text = attention.length === 0 ? '' : attention.length === 1 ? `${attention[0].serviceName} updated · Restart` : `${attention.length} services need attention`
+    return { services, text, needsAttention: attention.length, filesChanged: changed.value.total, truncated: changed.value.truncated }
+  }
+
+  /** Which profile a service belongs to is needed by the page to restart exactly the affected one. */
+
+  /* ------------------------------------------------------------ Sync with Remote and worktrees */
+
+  async syncPlan(id: unknown): Promise<Result<SyncPlan>> {
+    const repo = this.repo(id)
+    return this.exclusive(repo.id, async () => { const r = await this.sync.plan(repo.location); this.inspector.invalidate(repo.id); return r })
+  }
+  async syncExecute(id: unknown, selection: unknown): Promise<Result<SyncResult>> {
+    const repo = this.repo(id)
+    const sel = (selection ?? {}) as Record<string, unknown>
+    const names = (x: unknown) => (Array.isArray(x) ? x.map(n => v.str(n, 'Branch', { max: 255, allowEmpty: false })) : [])
+    return this.exclusive(repo.id, async () => {
+      const plan = await this.sync.plan(repo.location)
+      if (!plan.ok) return plan
+      const r = await this.sync.execute(repo.location, plan.value, { branches: names(sel.branches), forceBranches: names(sel.forceBranches), switchToDefault: sel.switchToDefault === true })
+      this.inspector.invalidate(repo.id)
+      return r
+    })
+  }
+  async worktreeList(id: unknown): Promise<Result<WorktreeInfo[]>> { return this.worktrees.list(this.repo(id).location, { withStatus: true }) }
+  async worktreeAdd(id: unknown, input: unknown): Promise<Result<{ path: string; branch: string }>> {
+    const repo = this.repo(id)
+    const o = (input ?? {}) as Record<string, unknown>
+    return this.exclusive(repo.id, async () => this.worktrees.add(repo.location, {
+      path: v.str(o.path, 'Folder', { max: 1024, allowEmpty: false }), branch: v.str(o.branch, 'Branch', { max: 255, allowEmpty: false }),
+      create: o.create === true, base: typeof o.base === 'string' && o.base ? v.str(o.base, 'Base', { max: 255 }) : undefined,
+    }))
+  }
+  private servicesAt(repo: Repo) {
+    // Managed services running from a worktree folder: profiles bound to it (the repository root counts when a profile has no worktree).
+    return (path: string) => {
+      const names: string[] = []
+      const running = this.services.activeForRepo(repo.id)
+      for (const p of this.store.profilesFor(repo.id)) {
+        const bound = p.worktreePath ? p.worktreePath.replace(/[\\/]+$/, '') === path.replace(/[\\/]+$/, '') : sameLocation({ ...repo.location, path }, repo.location)
+        if (!bound) continue
+        for (const sv of p.services) if (running.some(x => x.profileId === p.id && x.serviceId === sv.id)) names.push(sv.name)
+      }
+      return names
+    }
+  }
+  async worktreeCheck(id: unknown, path: unknown): Promise<Result<WorktreeRemovalCheck>> {
+    const repo = this.repo(id)
+    return this.worktrees.removalCheck(repo.location, v.str(path, 'Worktree', { max: 1024, allowEmpty: false }), this.servicesAt(repo))
+  }
+  async worktreeRemove(id: unknown, path: unknown, force: unknown): Promise<Result<{ removed: string }>> {
+    const repo = this.repo(id)
+    return this.exclusive(repo.id, async () => {
+      const r = await this.worktrees.remove(repo.location, v.str(path, 'Worktree', { max: 1024, allowEmpty: false }), { confirmed: true, force: force === true, runningServicesAt: this.servicesAt(repo) })
+      return r.ok ? ok({ removed: r.value.removed }) : r
+    })
+  }
+  async worktreePrune(id: unknown): Promise<Result<{ pruned: string[] }>> { return this.worktrees.prune(this.repo(id).location) }
+
+  /* ------------------------------------------------------------ terminals, processes, environments */
+
+  terminalShells(refresh?: unknown): Promise<ShellOption[]> { return this.dev.shells(refresh === true) }
+  terminalOpen(req: unknown): Promise<Result<{ info: TerminalInfo; notes: TerminalNote[] }>> { return this.dev.open(req) }
+  async terminalList(): Promise<TerminalInfo[]> { return this.dev.list() }
+  async terminalReplay(id: unknown): Promise<string> { return this.dev.replay(id) }
+  async terminalWrite(id: unknown, data: unknown): Promise<Result<void>> { return this.dev.write(id, data) }
+  async terminalResize(id: unknown, cols: unknown, rows: unknown): Promise<Result<void>> { return this.dev.resize(id, cols, rows) }
+  terminalClose(id: unknown, force?: unknown): Promise<Result<TerminalCloseResult>> { return this.dev.close(id, force) }
+
+  procsScan(force?: unknown): Promise<Result<ProcsSnapshot>> { return this.dev.scan(force === true) }
+  procsStop(key: unknown, confirmExternal?: unknown): Promise<Result<StopResult>> { return this.dev.stop(key, confirmExternal) }
+  procsEnv(key: unknown): Promise<Result<EnvSnapshot>> { return this.dev.env(key) }
+  /** Configuration files for a service (its resolved directory) or a repository root. Separate from the runtime environment on purpose. */
+  async configFiles(input: unknown): Promise<Result<ConfigFileEnv[]>> {
+    const o = (input ?? {}) as Record<string, unknown>
+    if (typeof o.profileId === 'string' && typeof o.serviceId === 'string') {
+      const p = this.profile(o.profileId)
+      const repo = this.repo(p.repoId)
+      const svc = p.services.find(x => x.id === o.serviceId)
+      if (!svc) return err('NOT_FOUND', 'That service no longer exists.')
+      const plan = await planLaunch(p, repo, { ...svc, envFile: '' })
+      if (!plan.ok) return plan
+      const loc: Location = repo.location.kind === 'wsl' ? { kind: 'wsl', distro: repo.location.distro, path: plan.value.dir } : { kind: 'native', path: plan.value.dir }
+      return ok(await this.dev.configFiles(loc))
+    }
+    const repo = this.repo(o.repoId)
+    return ok(await this.dev.configFiles(repo.location))
+  }
+  async portConflicts(profileId: unknown): Promise<Result<PortConflict[]>> {
+    const p = this.profile(profileId)
+    const ports = new Set<number>()
+    for (const sv of p.services) { for (const n of sv.ports ?? []) ports.add(n); if (sv.readiness.type === 'port') ports.add(sv.readiness.port) }
+    const mine = p.services.map(sv => serviceKey(p.id, sv.id))
+    return this.dev.conflicts([...ports], mine)
+  }
+
+  /* ------------------------------------------------------------ runner: dependencies and environment */
+
+  async runnersDependencies(key: unknown, refresh?: unknown): Promise<Result<DependencyReport>> {
+    const runner = this.runners.find(this.runnerKey(key))
+    if (!runner?.local) return err('NO_LOCAL', 'This runner has no installation on this computer to inspect.')
+    if (runner.local.host.kind === 'ssh') return err('NOT_SUPPORTED', 'Dependencies of SSH runners are not inspected from here.')
+    const sh = runnerShellFor(runner.local.host, { os: this.os })
+    return ok(await inspectDependencies(sh, { cwd: runner.local.path, refresh: refresh === true }))
+  }
+  async runnersEnvironment(key: unknown): Promise<Result<{ runtime: EnvSnapshot | null; runtimeReason: string | null; files: ConfigFileEnv[] }>> {
+    const runner = this.runners.find(this.runnerKey(key))
+    if (!runner?.local) return err('NO_LOCAL', 'This runner has no installation on this computer to inspect.')
+    const local = runner.local
+    if (local.host.kind === 'ssh') return err('NOT_SUPPORTED', 'Environments of SSH runners are not inspected from here.')
+    const sh = runnerShellFor(local.host, { os: this.os })
+    const files = await readConfigFiles(local.path, ['.env', '.path'], sh).catch(() => [])
+    const proc = await this.dev.runnerProcess(runner).catch(() => undefined)
+    if (!proc) return ok({ runtime: null, runtimeReason: local.process.running === false ? 'The runner is not running.' : 'The runner process was not found.', files })
+    const snap = await this.dev.env(proc.key)
+    return ok({ runtime: snap.ok ? snap.value : null, runtimeReason: snap.ok ? null : snap.error.message, files })
   }
 
   async branches(id: unknown) { return this.git.branches(this.repo(id).location) }
@@ -395,6 +548,16 @@ export class Backend {
     const wanted = serviceId === undefined ? p.services : p.services.filter(s => s.id === v.id(serviceId, 'Service id'))
     if (!wanted.length) return err('NOT_FOUND', 'That service no longer exists.')
     const targets = startOrder(wanted) ?? wanted
+    // A port another process already holds is reported before anything starts, naming the process, instead of failing later.
+    const wantPorts = new Set<number>()
+    for (const t of targets) { for (const n of t.ports ?? []) wantPorts.add(n); if (t.readiness.type === 'port') wantPorts.add(t.readiness.port) }
+    if (wantPorts.size) {
+      const c = await this.dev.conflicts([...wantPorts], p.services.map(sv => serviceKey(p.id, sv.id))).catch(() => null)
+      if (c?.ok && c.value.length) {
+        const first = c.value[0]
+        return err('PORT_IN_USE', `Port ${first.port} occupied`, c.value.map(x => `${x.port}: ${x.process.name} (PID ${x.process.pid})${x.managed ? ', started by GitManager' : ''}`).join('\n'))
+      }
+    }
     const launches = new Map<string, Launch>()
     for (const s of targets) {
       const plan = await planLaunch(p, repo, s, this.opts.readFile ?? readRuntimeFile)

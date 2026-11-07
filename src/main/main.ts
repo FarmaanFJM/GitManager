@@ -85,18 +85,22 @@ let quitting = false
 async function confirmQuit(e: Electron.Event) {
   if (quitting) return
   const running = backend.services.list().filter(s => backend.services.isAlive(s.key))
-  if (!running.length) return
+  // Terminals end with the application. Ask when one is running a command of its own (a build, a server, an editor).
+  let busyTerminals = 0
+  for (const t of backend.dev.list().filter(x => x.state === 'running')) { if ((await backend.dev.terminals.inspect(t.id).catch(() => null))?.hasChildren) busyTerminals++ }
+  if (!running.length && !busyTerminals) { backend.dev.shutdown(); return }
   e.preventDefault()
   if (win && !win.isVisible()) showWindow() // Quit from the tray: the question needs a visible window
   const choice = win
     ? await dialog.showMessageBox(win, {
-        type: 'question', buttons: ['Stop services and quit', 'Cancel'], defaultId: 0, cancelId: 1, noLink: true,
-        message: `${running.length === 1 ? '1 service is' : `${running.length} services are`} running.`,
-        detail: 'GitManager stops the services it started before quitting.',
+        type: 'question', buttons: [running.length ? 'Stop services and quit' : 'Quit', 'Cancel'], defaultId: 0, cancelId: 1, noLink: true,
+        message: [running.length ? (running.length === 1 ? '1 service is running.' : `${running.length} services are running.`) : '', busyTerminals ? (busyTerminals === 1 ? '1 terminal is running a command.' : `${busyTerminals} terminals are running commands.`) : ''].filter(Boolean).join(' '),
+        detail: [running.length ? 'GitManager stops the services it started before quitting.' : '', busyTerminals ? 'Quitting ends the shell and what it is running.' : ''].filter(Boolean).join(' '),
       })
     : { response: 0 }
   if (choice.response !== 0) return
   quitting = true
+  backend.dev.shutdown()
   await backend.services.stopAll()
   app.quit()
 }

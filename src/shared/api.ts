@@ -4,6 +4,10 @@ import type {
   Branch, BranchDetail, BranchOverview, Commit, Comparison, DeleteResult, DeletionReport, DiscoveredRepo, DiscoveryStatus, IgnoredRepo, Location, LogBatch, LogLine,
   Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, Root, ServiceStatus, Settings, StartupState,
 } from './types.js'
+import type { AffectedSummary, SyncPlan, SyncResult, WorktreeInfo, WorktreeRemovalCheck } from './gitflow.js'
+import type { DependencyReport } from './deps.js'
+import type { ConfigFileEnv, EnvSnapshot, PortConflict, ProcsSnapshot, StopResult } from './procs.js'
+import type { ShellOption, TerminalCloseResult, TerminalInfo, TerminalNote, TerminalOpenRequest } from './terminal.js'
 import type { ArtifactRef, AuditView, AuthState, CleanupPlan, OpenTarget, OperationResult, StorageSettings, StorageState } from './storage.js'
 import type {
   ActionOptions, ActionResult, GitHubOrgChoice, GitHubRepoChoice, HostProbe, InstallJob, InstallPlan, RunnerAction, RunnerDiagnostics, RunnerGroupInfo, RunnerHost, RunnerRoot, RunnersOpenTarget, RunnersScan, RunnersSettings, RunnersState, RunsOnExample, SshConfigHost, WorkflowLabelReport,
@@ -14,7 +18,7 @@ export type AppState = {
   roots: Root[]
   profiles: Profile[]
   settings: Settings
-  ui: { selectedRepoId: string | null; selectedProfile: Record<string, string> }
+  ui: { selectedRepoId: string | null; selectedProfile: Record<string, string>; shellByRepo?: Record<string, string> }
   services: ServiceStatus[]
   warning: string | null
   ignored: IgnoredRepo[]
@@ -40,6 +44,9 @@ export type ApiEvents = {
   'runners-status': { scan: RunnersScan; job: InstallJob | null; busy: Record<string, RunnerAction>; auth: AuthState | null }
   /** Runners: the inventory or settings changed; ask for runnersState again. */
   'runners-changed': null
+  'terminal-data': { id: string; data: string }
+  /** A terminal opened, changed state or closed (`closed` holds the id then). */
+  'terminal-changed': { info: TerminalInfo | null; closed: string | null }
 }
 
 export interface GitManagerApi {
@@ -58,7 +65,37 @@ export interface GitManagerApi {
   checkRemote(repoId: string): Promise<Result<RemoteCheck | null>>
 
   fetch(repoId: string): Promise<Result<{ remote: string }>>
-  pull(repoId: string): Promise<Result<{ commits: number }>>
+  /** `affected` is set only when services of the repository were running and the update may need a restart. */
+  pull(repoId: string): Promise<Result<{ commits: number; affected: AffectedSummary | null }>>
+  /** Sync with Remote: fetch, prune, and classify obsolete local branches. Deletes nothing. */
+  syncPlan(repoId: string): Promise<Result<SyncPlan>>
+  /** Deletes only the branches named, after re-verifying each against the current state. */
+  syncExecute(repoId: string, selection: { branches: string[]; forceBranches?: string[]; switchToDefault?: boolean }): Promise<Result<SyncResult>>
+  worktreeList(repoId: string): Promise<Result<WorktreeInfo[]>>
+  worktreeAdd(repoId: string, input: { path: string; branch: string; create: boolean; base?: string }): Promise<Result<{ path: string; branch: string }>>
+  worktreeCheck(repoId: string, path: string): Promise<Result<WorktreeRemovalCheck>>
+  worktreeRemove(repoId: string, path: string, force?: boolean): Promise<Result<{ removed: string }>>
+  worktreePrune(repoId: string): Promise<Result<{ pruned: string[] }>>
+
+  terminalShells(refresh?: boolean): Promise<ShellOption[]>
+  terminalOpen(req: TerminalOpenRequest): Promise<Result<{ info: TerminalInfo; notes: TerminalNote[] }>>
+  terminalList(): Promise<TerminalInfo[]>
+  /** Output kept for a session, to redraw it after the page was away. */
+  terminalReplay(id: string): Promise<string>
+  terminalWrite(id: string, data: string): Promise<Result<void>>
+  terminalResize(id: string, cols: number, rows: number): Promise<Result<void>>
+  /** Refused with needsConfirm while the shell has running work, unless force is true. */
+  terminalClose(id: string, force?: boolean): Promise<Result<TerminalCloseResult>>
+
+  procsScan(force?: boolean): Promise<Result<ProcsSnapshot>>
+  /** An external process is stopped only with confirmExternal: true. */
+  procsStop(key: string, confirmExternal?: boolean): Promise<Result<StopResult>>
+  /** Read-only. The environment the process received, never what a file on disk says now. */
+  procsEnv(key: string): Promise<Result<EnvSnapshot>>
+  configFiles(input: { repoId: string } | { profileId: string; serviceId: string }): Promise<Result<ConfigFileEnv[]>>
+  portConflicts(profileId: string): Promise<Result<PortConflict[]>>
+  runnersDependencies(key: string, refresh?: boolean): Promise<Result<DependencyReport>>
+  runnersEnvironment(key: string): Promise<Result<{ runtime: EnvSnapshot | null; runtimeReason: string | null; files: ConfigFileEnv[] }>>
   branches(repoId: string): Promise<Result<Branch[]>>
   switchBranch(repoId: string, branch: string): Promise<Result<{ branch: string; carried: boolean }>>
   trackBranch(repoId: string, remoteRef: string): Promise<Result<{ branch: string }>>
@@ -159,6 +196,9 @@ export const API_METHODS = [
   'discoveryStatus', 'rescan', 'unignoreRepo', 'branchOverview', 'branchDetail', 'setCompareBase',
   'storageState', 'storageAuth', 'storageScan', 'storageCancel', 'storageCandidates', 'storagePreview', 'storageDelete', 'storagePin', 'storageProtectRepo',
   'storageSavePolicy', 'storageSaveSettings', 'storageRunAutomation', 'storageDismissRecommendation', 'storageAudit', 'storageOpen',
+  'syncPlan', 'syncExecute', 'worktreeList', 'worktreeAdd', 'worktreeCheck', 'worktreeRemove', 'worktreePrune',
+  'terminalShells', 'terminalOpen', 'terminalList', 'terminalReplay', 'terminalWrite', 'terminalResize', 'terminalClose',
+  'procsScan', 'procsStop', 'procsEnv', 'configFiles', 'portConflicts', 'runnersDependencies', 'runnersEnvironment',
   'runnersState', 'runnersAuth', 'runnersScan', 'runnersCancel', 'runnersRefresh', 'runnersSaveSettings', 'runnersAddRoot', 'runnersRemoveRoot', 'runnersSshHosts', 'runnersAllowSsh', 'runnersProbe',
   'runnersRepos', 'runnersOrgs', 'runnersGroups', 'runnersPlan', 'runnersInstall', 'runnersCancelInstall', 'runnersAction', 'runnersRetire', 'runnersRestore', 'runnersCleanup', 'runnersDiagnostics', 'runnersRunsOn', 'runnersWorkflows', 'runnersOpen',
 ] as const satisfies readonly Exclude<keyof GitManagerApi, 'on'>[]
