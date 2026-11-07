@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { Button, Dropdown, Icon, IconButton, MenuButton, useCopy } from '../../third_party/summa-ui/src/ui'
+import { Button, Dropdown, Icon, IconButton, MenuButton, Switch, useCopy } from '../../third_party/summa-ui/src/ui'
 import { useConfirm, useToast } from '../../third_party/summa-ui/src/presets'
 import { collectBlocks, formatBlocks, recordCommand, wholeBuffer, type Recorded } from './terminalBlocks'
 import type { ShellOption, TerminalInfo, TerminalNote, TerminalOpenRequest, TerminalTarget } from '../shared/terminal'
@@ -20,6 +20,10 @@ const THEME = {
   black: '#232424', red: '#ef7070', green: '#34c38f', yellow: '#d9b45b', blue: '#7aa2d6', magenta: '#b58fd1', cyan: '#6fc0bd', white: '#dcdedc',
   brightBlack: '#6f7473', brightRed: '#f58a8a', brightGreen: '#52d6a3', brightYellow: '#e6c776', brightBlue: '#95b8e3', brightMagenta: '#c9a8de', brightCyan: '#8fd3d0', brightWhite: '#f2f4f2',
 }
+
+const SELECT_TO_COPY_KEY = 'gm.terminal.selectToCopy'
+/** On by default; one preference for every terminal tab and repository, kept across restarts. */
+const readSelectToCopy = () => { try { return localStorage.getItem(SELECT_TO_COPY_KEY) !== '0' } catch { return true } }
 
 type Live = { term: Terminal; fit: FitAddon; el: HTMLDivElement; replayed: boolean }
 
@@ -44,6 +48,13 @@ export function TerminalDock({ register, target, onNote }: {
   const confirm = useConfirm()
   const toast = useToast()
   const clipboard = useCopy()
+  const [selectToCopy, setSelectToCopy] = useState(readSelectToCopy)
+  const selectToCopyRef = useRef(selectToCopy)
+  selectToCopyRef.current = selectToCopy
+  const clipboardRef = useRef(clipboard)
+  clipboardRef.current = clipboard
+  const toastRef = useRef(toast)
+  toastRef.current = toast
   const records = useRef(new Map<string, Recorded[]>())
   const host = useRef<HTMLDivElement>(null)
   const live = useRef(new Map<string, Live>())
@@ -95,6 +106,21 @@ export function TerminalDock({ register, target, onNote }: {
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(el)
+    // Select to copy: a selection made with the mouse is copied when the button is released (not while dragging, not for programmatic
+    // selections or output changes). The selection stays highlighted; focus returns to the terminal.
+    el.addEventListener('mousedown', e => {
+      if (e.button !== 0) return
+      const up = () => {
+        document.removeEventListener('mouseup', up, true)
+        window.setTimeout(() => {
+          if (!selectToCopyRef.current) return
+          const text = term.getSelection()
+          if (!text) return
+          void clipboardRef.current.copy(text).then(ok => { if (!ok) toastRef.current.error('Could not copy') }).finally(() => term.focus())
+        }, 0)
+      }
+      document.addEventListener('mouseup', up, true)
+    })
     term.onData(d => {
       // Enter marks the start of an output: remember which line the command is on (the text is read back from the buffer when copying).
       if (d === '\r') { const r = recordCommand(term); const list = records.current.get(info.id) ?? []; list.push(r); records.current.set(info.id, list.slice(-500)) }
@@ -190,6 +216,10 @@ export function TerminalDock({ register, target, onNote }: {
           ))}
         </div>
         <span className="grow" />
+        <label className="gm-dock-toggle">
+          <Switch checked={selectToCopy} label="Select to copy" onChange={v => { setSelectToCopy(v); try { localStorage.setItem(SELECT_TO_COPY_KEY, v ? '1' : '0') } catch { /* not persisted */ } }} />
+          <span>Select to copy</span>
+        </label>
         {current && <MenuButton icon="copy" size="sm" label="Copy output" items={[
           { label: 'Last command and output', icon: 'copy', onSelect: () => void copyOutput('last') },
           { label: 'All commands and outputs', icon: 'copy', onSelect: () => void copyOutput('all') },
