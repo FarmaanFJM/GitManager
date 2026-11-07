@@ -1,0 +1,129 @@
+name: Release
+
+# Builds the Windows installer and portable zip from the tagged commit and publishes them as a GitHub release.
+#   git tag v1.0.1 && git push origin v1.0.1
+# The tag must be v<version> of package.json, and the tagged commit must be on main. A failed check stops the release
+# before anything is built or published. Run it again for an existing tag with workflow_dispatch (the tag input).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and publish, for example v1.0.1'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  # Everything below builds this exact tag. For a tag push it is the pushed tag; for a manual run it is the input.
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  verify:
+    name: Verify tag and version
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: The tag name is a version tag
+        run: |
+          case "$TAG" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "::error::'$TAG' is not a version tag like v1.0.1"; exit 1 ;; esac
+      - uses: actions/checkout@v5
+        with:
+          ref: refs/tags/${{ github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0
+      - name: The checkout is the tagged commit, and it is on main
+        run: |
+          tagged="$(git rev-parse "refs/tags/$TAG^{commit}")"
+          head="$(git rev-parse HEAD)"
+          if [ "$tagged" != "$head" ]; then echo "::error::checked out $head, but $TAG points at $tagged"; exit 1; fi
+          if [ "${{ github.event_name }}" = "push" ] && [ "$tagged" != "${{ github.sha }}" ]; then echo "::error::the pushed tag points at $tagged, the event says ${{ github.sha }}"; exit 1; fi
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "$tagged" origin/main; then echo "::error::$TAG ($tagged) is not on main. Release from a commit that has been merged"; exit 1; fi
+          echo "Releasing $TAG at $tagged"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: The tag matches package.json and the lockfile
+        run: node scripts/versioning/check.mjs --tag "$TAG"
+      - run: npm run verify:summa-ui
+      - run: npm run typecheck
+      - run: npm test
+
+  windows:
+    name: Windows installer and zip
+    needs: verify
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: refs/tags/${{ github.event.inputs.tag || github.ref_name }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: The tag matches package.json and the lockfile
+        shell: bash
+        run: node scripts/versioning/check.mjs --tag "$TAG"
+      - run: npm run build
+      - name: Build installer and portable zip (unsigned)
+        run: npx electron-builder --win --x64 --publish never
+      - name: The artifacts carry the tagged version (names, executable and installer version resources)
+        shell: bash
+        run: node scripts/versioning/check.mjs --tag "$TAG" --artifacts release
+      - name: The GitManager icon is embedded
+        shell: bash
+        run: |
+          node scripts/verify-branding.mjs --exe release/win-unpacked/GitManager.exe
+          node scripts/verify-branding.mjs --exe "$(ls release/GitManager-*-x64.exe | head -1)"
+      - name: Install the installer and test the installed build
+        shell: bash
+        run: node scripts/e2e-windows.mjs "$(ls release/GitManager-*-x64.exe | head -1)"
+      - name: Checksums
+        shell: bash
+        run: |
+          cd release
+          sha256sum GitManager-*-x64.exe GitManager-*-x64.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - uses: actions/upload-artifact@v5
+        with:
+          name: GitManager-windows-x64
+          path: |
+            release/GitManager-*-x64.exe
+            release/GitManager-*-x64.zip
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: windows
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: GitManager-windows-x64
+          path: dist-release
+      - name: Create or update the release for the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          ls -l dist-release
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist-release/* --repo "$REPO" --clobber
+          else
+            gh release create "$TAG" dist-release/* --repo "$REPO" --verify-tag --title "GitManager ${TAG#v}" --generate-notes
+          fi

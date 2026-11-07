@@ -28,6 +28,8 @@ jobs:
         run: npm run verify:summa-ui
       - name: Verify the logo assets and packaging icons
         run: npm run verify:branding
+      - name: Verify the application version (package.json, lockfile, and the tag on a tag build)
+        run: npm run verify:release
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
@@ -77,6 +79,8 @@ jobs:
       - run: npm run build
       - name: Build installer and portable zip (unsigned)
         run: npx electron-builder --win --x64 --publish never
+      - name: Verify the artifacts carry the application version (file names, executable and installer version resources)
+        run: node scripts/versioning/check.mjs --artifacts release
       - name: Verify the GitManager icon is embedded (not the default Electron icon)
         shell: bash
         run: |
