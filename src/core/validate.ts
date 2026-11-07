@@ -102,6 +102,9 @@ export function service(v: unknown, i: number): ServiceDef {
     envFile: str(v.envFile ?? '', `${label} env file`, { max: 1024 }).trim(),
     readiness: readiness(v.readiness ?? { type: 'none' }),
     readyTimeout: int(v.readyTimeout ?? 120, `${label} readiness timeout`, 5, 3600),
+    ...(Array.isArray(v.dependsOn) && v.dependsOn.length ? { dependsOn: [...new Set((v.dependsOn as unknown[]).map(d => id(d, `${label} dependency`)))] } : {}),
+    ...(typeof v.url === 'string' && v.url.trim() ? { url: httpUrl(v.url, `${label} URL`) } : {}),
+    ...(Array.isArray(v.ports) && v.ports.length ? { ports: [...new Set((v.ports as unknown[]).map(x => int(x, `${label} port`, 1, 65535)))].slice(0, 16) } : {}),
   }
 }
 
@@ -115,6 +118,9 @@ export function profile(v: unknown): Profile {
   const names = new Set<string>()
   for (const s of services) { const k = s.name.toLowerCase(); if (names.has(k)) fail(`Two services are named "${s.name}".`); names.add(k) }
   if (new Set(services.map(s => s.id)).size !== services.length) fail('Service ids must be unique.')
+  const ids = new Set(services.map(x => x.id))
+  for (const s of services) for (const d of s.dependsOn ?? []) { if (!ids.has(d)) fail(`${s.name} depends on a service that does not exist.`); if (d === s.id) fail(`${s.name} cannot depend on itself.`) }
+  if (startOrder(services) === null) fail('Services depend on each other in a circle.')
   const browser = BROWSERS.includes(v.browser as Browser) ? (v.browser as Browser) : fail('Browser is invalid.')
   return {
     id: id(v.id, 'Profile id'),
@@ -124,6 +130,7 @@ export function profile(v: unknown): Profile {
     workingDir: str(v.workingDir ?? '', 'Working directory', { max: 1024 }).trim(),
     services,
     openUrl: httpUrl(v.openUrl ?? '', 'Open URL'),
+    ...(typeof v.worktreePath === 'string' && v.worktreePath.trim() ? { worktreePath: str(v.worktreePath, 'Worktree', { max: 1024 }).trim() } : {}),
     browser,
     trustedFingerprint: v.trustedFingerprint == null ? null : str(v.trustedFingerprint, 'Fingerprint', { max: 128 }),
   }
@@ -140,4 +147,18 @@ export function settings(v: unknown): Settings {
     startMinimized: v.startMinimized === true,
     minimizeToTray: v.minimizeToTray === true,
   }
+}
+
+/** Services in start order (dependencies first, otherwise the listed order), or null when they depend on each other in a circle. */
+export function startOrder<T extends { id: string; dependsOn?: string[] }>(services: T[]): T[] | null {
+  const done = new Set<string>()
+  const out: T[] = []
+  const left = [...services]
+  while (left.length) {
+    const i = left.findIndex(s => (s.dependsOn ?? []).every(d => done.has(d)))
+    if (i < 0) return null
+    const [s] = left.splice(i, 1)
+    done.add(s.id); out.push(s)
+  }
+  return out
 }

@@ -179,3 +179,24 @@ describe('log lines and launch commands', () => {
     expect(spec.cwd).toBe('C:\\code\\app\\frontend')
   })
 })
+
+describe('verified start, restart and launch environment', () => {
+  it('settled reports a process that exits right after spawning as failed, never as started', async () => {
+    const m = manager()
+    await m.start(launch(node('0 --fail 3')))
+    const st = await m.settled('p:s', { timeoutMs: 8000 })
+    expect(st?.state).toBe('failed')
+  })
+
+  it('restartVerified returns a new pid that stays alive, and keeps the same environment', async () => {
+    const m = manager()
+    await m.start(launch(node('0'), { type: 'none' }, { env: { GM_TEST_MARK: 'one' } }))
+    const first = m.get('p:s')!.pid!
+    const st = await m.restartVerified('p:s', { aliveMs: 300 })
+    expect(st?.state).toBe('running')
+    expect(st?.pid).not.toBe(first)
+    expect(alive(st!.pid!)).toBe(true)
+    expect(m.launchEnv('p:s')?.env.GM_TEST_MARK).toBe('one')
+    expect(m.launchEnv('p:s')?.base).toBe('host')
+  })
+})

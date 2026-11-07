@@ -68,6 +68,7 @@ type Entry = {
   pending: LogLine[]
   flushTimer: NodeJS.Timeout | null
   stopRequested: boolean
+  spawnEnv?: Record<string, string>
   exited: Promise<void>
 }
 
@@ -176,6 +177,8 @@ export class ServiceManager extends EventEmitter {
       return e.status
     }
     e.child = child
+    // What the process actually received (host environment plus the service's own variables). Kept for the read-only environment view.
+    if (launch.runtime.kind === 'native') e.spawnEnv = Object.fromEntries(Object.entries(spec.env ?? process.env).filter((kv): kv is [string, string] => typeof kv[1] === 'string'))
     this.set(e, { pid: child.pid ?? null, startedAt: new Date().toISOString() })
 
     const attach = (stream: NodeJS.ReadableStream, kind: 'out' | 'err') => {
@@ -284,6 +287,45 @@ export class ServiceManager extends EventEmitter {
     if (!e) return undefined
     await this.stop(key)
     return this.start(e.launch)
+  }
+
+  /**
+   * Waits until a service has left `starting`/`stopping`: ready, running, failed or stopped. For a service with no readiness
+   * check, `running` only means the process is alive, so it must stay alive for `aliveMs` before it counts as started.
+   * Never reports success because a process was merely spawned.
+   */
+  async settled(key: string, opts: { timeoutMs?: number; aliveMs?: number } = {}): Promise<ServiceStatus | undefined> {
+    const e = this.entries.get(key)
+    if (!e) return undefined
+    const deadline = Date.now() + (opts.timeoutMs ?? (e.launch.readyTimeout + 15) * 1000)
+    const aliveMs = e.launch.readiness.type === 'none' ? (opts.aliveMs ?? 1500) : 0
+    let aliveSince = 0
+    while (Date.now() < deadline) {
+      const cur = this.entries.get(key) ?? e
+      const st = cur.status.state
+      if (st === 'failed' || st === 'stopped') return cur.status
+      if (st === 'ready') return cur.status
+      if (st === 'running') {
+        aliveSince ||= Date.now()
+        if (Date.now() - aliveSince >= aliveMs) return cur.status
+      } else aliveSince = 0
+      await new Promise(r => setTimeout(r, 50))
+    }
+    return (this.entries.get(key) ?? e).status
+  }
+
+  /** Stop gracefully, start again with the same launch (command, directory, environment) and report only what is verified. */
+  async restartVerified(key: string, opts: { timeoutMs?: number; aliveMs?: number } = {}): Promise<ServiceStatus | undefined> {
+    const started = await this.restart(key)
+    if (!started) return undefined
+    return this.settled(key, opts)
+  }
+
+  /** The environment a service was last launched with, exactly as passed to the process (the base is this app's environment on the host; inside WSL only the service's own variables are known). */
+  launchEnv(key: string): { env: Record<string, string>; base: 'host' | 'service-only'; startedAt: string | null } | undefined {
+    const e = this.entries.get(key)
+    if (!e) return undefined
+    return { env: e.spawnEnv ?? { ...e.launch.env }, base: e.spawnEnv ? 'host' : 'service-only', startedAt: e.status.startedAt }
   }
 
   async stopAll(filter: (s: ServiceStatus) => boolean = () => true) {

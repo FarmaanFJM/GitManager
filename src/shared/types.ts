@@ -73,6 +73,12 @@ export type ServiceDef = {
   readiness: Readiness
   /** Seconds to wait for the readiness check before reporting failure. */
   readyTimeout: number
+  /** Ids of services in the same profile that must be running (or ready) before this one starts. Empty or absent: no dependency. */
+  dependsOn?: string[]
+  /** The address this service serves, for Open URL and Copy URL. Empty or absent: none. */
+  url?: string
+  /** Ports this service is expected to listen on, checked for collisions before it starts. The readiness port counts too. */
+  ports?: number[]
 }
 
 export type Browser = 'default' | 'chrome' | 'edge'
@@ -86,6 +92,8 @@ export type Profile = {
   workingDir: string
   services: ServiceDef[]
   openUrl: string
+  /** A linked worktree of the repository this profile runs in (same environment as the repository). Absent: the repository root. */
+  worktreePath?: string
   browser: Browser
   /** Fingerprint of everything that decides what gets executed, recorded when the user trusted it. */
   trustedFingerprint: string | null

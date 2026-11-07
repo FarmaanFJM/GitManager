@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import type { Profile, Readiness, Repo, Result, Runtime, ServiceDef } from '../shared/types.js'
+import type { Location, Profile, Readiness, Repo, Result, Runtime, ServiceDef } from '../shared/types.js'
 import { programSpec, run } from './exec.js'
 import { locationRuntime, resolveRunDir } from './paths.js'
 
@@ -14,6 +14,7 @@ export function fingerprint(p: Profile, repo: Repo): string {
     location: repo.location,
     runtime: p.runtime,
     workingDir: p.workingDir,
+    ...(p.worktreePath ? { worktreePath: p.worktreePath } : {}),
     services: p.services.map(s => ({ id: s.id, command: s.command, cwd: s.cwd, env: Object.entries(s.env).sort(), envFile: s.envFile })),
   }
   return createHash('sha256').update(JSON.stringify(material)).digest('hex')
@@ -65,11 +66,13 @@ export const serviceKey = (profileId: string, serviceId: string) => `${profileId
 
 /** Resolves a service into an exact launch: directory in the runtime's path syntax and the final environment. */
 export async function planLaunch(profile: Profile, repo: Repo, svc: ServiceDef, read: FileReader = readRuntimeFile): Promise<Result<Launch>> {
-  const dir = resolveRunDir(repo.location, profile.runtime, profile.workingDir, svc.cwd)
+  // A profile bound to a worktree runs from that worktree's folder instead of the repository root (same environment).
+  const base: Location = profile.worktreePath ? { ...repo.location, path: profile.worktreePath } : repo.location
+  const dir = resolveRunDir(base, profile.runtime, profile.workingDir, svc.cwd)
   if (!dir.ok) return { ok: false, error: { code: 'BAD_DIR', message: dir.message } }
   let fileEnv: Record<string, string> = {}
   if (svc.envFile) {
-    const f = resolveRunDir(repo.location, profile.runtime, profile.workingDir, svc.envFile)
+    const f = resolveRunDir(base, profile.runtime, profile.workingDir, svc.envFile)
     if (!f.ok) return { ok: false, error: { code: 'BAD_ENV_FILE', message: f.message } }
     try { fileEnv = parseEnvFile(await read(profile.runtime, f.path)) } catch (e) {
       return { ok: false, error: { code: 'BAD_ENV_FILE', message: `The env file for ${svc.name} could not be read: ${f.path}`, detail: (e as Error).message } }

@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { dirname } from 'node:path'
 import type { AppState, Distros, LaunchPreview } from '../shared/api.js'
-import type { BranchDetail, BranchOverview, DeleteResult, DeletionReport, DiscoveredRepo, DiscoveryStatus, Location, OpError, Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, Root, ServiceStatus, Settings, StartupState } from '../shared/types.js'
+import type { BranchDetail, BranchOverview, DeleteResult, DeletionReport, DiscoveredRepo, DiscoveryStatus, Location, OpError, Platform, Profile, RemoteCheck, ServiceDef, Repo, RepoStatus, Result, Root, ServiceStatus, Settings, StartupState } from '../shared/types.js'
 import { realpathSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { AutoDiscovery } from '../core/autodiscovery.js'
@@ -17,6 +17,7 @@ import { draftProfile, fingerprint, isTrusted, planLaunch, readRuntimeFile, serv
 import { reconcile, Startup } from '../core/startup.js'
 import { newId, Store } from '../core/store.js'
 import * as v from '../core/validate.js'
+import { startOrder } from '../core/validate.js'
 import type { ArtifactRef, AuditView, AuthState, CleanupPlan, OpenTarget, OperationResult, StorageSettings, StorageState } from '../shared/storage.js'
 import { validRepoName } from '../core/storage/config.js'
 import { GhCli } from '../core/storage/gh.js'
@@ -391,17 +392,39 @@ export class Backend {
     const p = this.profile(profileId)
     const repo = this.repo(p.repoId)
     if (!isTrusted(p, repo)) return err('UNTRUSTED', 'Review and trust this profile before running it.')
-    const targets = serviceId === undefined ? p.services : p.services.filter(s => s.id === v.id(serviceId, 'Service id'))
-    if (!targets.length) return err('NOT_FOUND', 'That service no longer exists.')
-    const launches: Launch[] = []
+    const wanted = serviceId === undefined ? p.services : p.services.filter(s => s.id === v.id(serviceId, 'Service id'))
+    if (!wanted.length) return err('NOT_FOUND', 'That service no longer exists.')
+    const targets = startOrder(wanted) ?? wanted
+    const launches = new Map<string, Launch>()
     for (const s of targets) {
       const plan = await planLaunch(p, repo, s, this.opts.readFile ?? readRuntimeFile)
       if (!plan.ok) return plan
-      launches.push(plan.value)
+      launches.set(s.id, plan.value)
     }
-    return ok(await Promise.all(launches.map(l => this.services.start(l))))
+    // Services start in dependency order: one that depends on another waits until that one is ready (or running with no check).
+    // A failed dependency stops the chain; what already started is reported, not hidden.
+    const started = new Map<string, Promise<ServiceStatus>>()
+    const startOne = (s: ServiceDef): Promise<ServiceStatus> => {
+      const prior = started.get(s.id)
+      if (prior) return prior
+      const run = (async () => {
+        const deps = (s.dependsOn ?? []).filter(d => launches.has(d))
+        const depStatus = await Promise.all(deps.map(d => startOne(targets.find(t => t.id === d)!)))
+        const bad = depStatus.find(d => d.state === 'failed' || d.state === 'stopped')
+        const l = launches.get(s.id)!
+        if (bad) {
+          const name = p.services.find(x => x.id === bad.serviceId)?.name ?? 'A dependency'
+          return { key: l.key, profileId: p.id, serviceId: s.id, repoId: repo.id, state: 'failed', pid: null, startedAt: null, exitCode: null, message: `${name} did not start, so ${s.name} was not started.` } as ServiceStatus
+        }
+        const first = await this.services.start(l)
+        const needsWait = targets.some(t => (t.dependsOn ?? []).includes(s.id))
+        return needsWait && first.state !== 'failed' ? (await this.services.settled(l.key)) ?? first : first
+      })()
+      started.set(s.id, run)
+      return run
+    }
+    return ok(await Promise.all(targets.map(startOne)))
   }
-
   async stopServices(profileId: unknown, serviceId?: unknown): Promise<Result<void>> {
     const p = this.profile(profileId)
     const keys = (serviceId === undefined ? p.services : p.services.filter(s => s.id === v.id(serviceId, 'Service id'))).map(s => serviceKey(p.id, s.id))
@@ -409,9 +432,19 @@ export class Backend {
     return ok(undefined)
   }
 
+  /** Stops the service gracefully, starts it again with its configured command, directory and environment, and reports what was verified. */
   async restartService(profileId: unknown, serviceId: unknown): Promise<Result<ServiceStatus[]>> {
+    const p = this.profile(profileId)
+    const sid = v.id(serviceId, 'Service id')
+    const svc = p.services.find(s => s.id === sid)
+    if (!svc) return err('NOT_FOUND', 'That service no longer exists.')
     await this.stopServices(profileId, serviceId)
-    return this.startServices(profileId, serviceId)
+    const started = await this.startServices(profileId, serviceId)
+    if (!started.ok) return started
+    const st = (await this.services.settled(serviceKey(p.id, sid))) ?? started.value[0]
+    if (st && st.state === 'failed') return { ok: false, error: { code: 'RESTART_FAILED', message: `${svc.name} failed`, detail: st.message ?? undefined } }
+    if (st && st.state === 'stopped') return { ok: false, error: { code: 'RESTART_FAILED', message: `${svc.name} stopped`, detail: st.message ?? undefined } }
+    return ok([st ?? started.value[0]])
   }
 
   logs(key: unknown) { return this.services.logs(v.str(key, 'key', { max: 140 })) }
