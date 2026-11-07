@@ -2,13 +2,21 @@
 
 # GitManager
 
-A desktop workspace for managing Git repositories, syncing branches, and launching development projects with one click. Built with Summa-UI.
+A local control center for development: repositories, Git, an embedded PowerShell and WSL terminal, running processes and ports, environments, GitHub Actions runners, worktrees and startup profiles. Built with Summa-UI.
 
 Open GitManager, select a repository, fetch and pull, pick a branch, press Run, open the app in Chrome. GitManager is a local tool: no server, no account, no cloud. It uses the Git you already have, with your existing configuration, remotes and credentials.
 
 ![GitManager running a frontend and a backend](docs/screenshots/09-services-ready.png)
 
 ## What it does
+
+**Control center** (details in [docs/DEVTOOLS.md](docs/DEVTOOLS.md))
+- Repositories open as one compact row each: name, branch, state, quick **Terminal**, and a context menu (Open, Open Terminal, Fetch, Pull, Sync with Remote, Branches, Worktrees, Copy Path, Open Folder, Remove from GitManager, Delete Local Repository).
+- **Terminal**: a real PTY in a bottom dock, in the repository's folder, in PowerShell, PowerShell 7 or any WSL distribution.
+- **Processes**: what listens on which port, started by GitManager or not, with repository, Stop (confirmed for outside processes) and a read-only **Environment** (runtime and files kept apart; secrets revealable).
+- **Sync with Remote**: fetch, prune, and a reviewed cleanup of obsolete local branches that never deletes unmerged work silently.
+- **Pull while services run**, with "Backend updated · Restart" only for the services the change affects; verified restart.
+- **Worktrees**, **startup profiles** with order, URLs and ports, and **runners** with Terminal, Logs, Environment, Dependencies and Restart.
 
 **Repositories**
 - Automatic discovery at every launch: common development folders (`<home>\source\repos`, `<home>\Projects`, `C:\Projects`, `D:\dev` and similar, found from your home folder and drive letters, never from a user name) and the home folders of your WSL 2 distributions. Repositories appear in the list as they are found; worktrees are recognized, submodules and dependency folders are skipped, and the same folder reached through different paths (`\\wsl.localhost\...`, `/mnt/c/...`, junctions, letter case) is registered once. WSL scans stay on the Linux file system, so Windows drives are not scanned twice.

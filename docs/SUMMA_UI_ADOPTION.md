@@ -82,6 +82,22 @@ These are arrangements of existing tokens and classes for GitManager's content, 
 | D10 | The cleanup dialog is a scrolling `Dialog` (up to 760 px wide) whose body groups artifacts per repository on `--s2` cards, with a native `<progress>` while deleting. | `preset.confirm-dialog` is for a single question. A deletion of hundreds of artifacts has to be read first, so the explicit authorization is the one solid red button (a verb, the count and the size), not a second confirmation. Filed as a request for a list-confirmation variant. |
 | D14 | Menus and popovers (`.popover`) are a solid `--s4` surface with no blur, set in `app.css` over the pinned `base.css`; the entrance animation only moves (no fade from transparent), disabled items use a 55 % mix of `--text` into `--s4`, keyboard focus is one step stronger than hover, and a disabled destructive item keeps a dimmed danger colour. | The pinned `.popover` is 88 % `--s4` over a 14 px blur, and the owner does not want a glass effect: text and warnings behind a menu showed through its labels. The elevation scale already assigns `--s4` to menus (P02). Pinned files are not edited. The suggested guidance change is filed as summa-ui FB-0046 and written up in [summa-ui-proposals/opaque-menus.md](summa-ui-proposals/opaque-menus.md); it is the owner's to decide. |
 
+## TOP principle
+
+GitManager applies the Summa-UI TOP rules (show only what is needed when it is needed; see `docs/TOP.md` in summa-ui, an **unreleased draft proposal** PR-0005, not an approved rule). The guidance bundle pinned above is unchanged (`guidance-v0.1.0`, approved, digest verified). The reference components are the only thing that moved: the command is `node scripts/summa-ui/vendor-reference.mjs <summa-ui checkout>`, which copies the reference files byte for byte, adds `src/ui/top.tsx` and `src/styles/top.css`, and rewrites the lock's `reference` hashes. These primitives are a candidate until the owner releases them.
+
+| Pattern | Primitive | Where |
+| --- | --- | --- |
+| Repository row: name, branch, state, one action, menu | `ActionRow`, `StatusIndicator`, `Tooltip` | Repositories overview |
+| Short supplementary text | `Tooltip` (hover and keyboard focus only) | Settings switches, icon actions |
+| Details on demand | `Details`, `DetailPanel` | service failures, process detail, sync results, runner detail |
+| One-line problem with an action | `InlineAlert` | "Port 8080 occupied", "Backend updated · Restart", unreachable remote |
+| Secrets | `SecretValue`, `useRevealAll`, `SecretToggleAll` | Environment panel |
+| Output | `LogViewer`, `CopyButton`, `OperationProgress` | service logs, runner logs, sync progress |
+| Confirmations with the exact target | `ConfirmDialog` `target`, `consequences` | remove repository, remove worktree |
+
+Text removed from permanent view: the three-fact repository summary became one line, the repository path moved to a tooltip and Copy Path, Settings paragraphs became tooltips, the Runners statistic blocks became one counts line, instructional hints in dialogs were deleted. Errors, warnings and destructive consequences stay visible. Deviations: the terminal dock is a bottom region of the main column (not a sidebar); xterm.js draws terminal content with its own renderer and a theme built from the same tokens.
+
 ## Opaque menus
 
 `npm run test:e2e:menus` measures this in the real window (Electron under Xvfb), for the repository context menu and the Runner Details menu: the computed surface is `rgb(55, 56, 56)` with no `backdrop-filter` and opacity 1; the pixels inside the menu are identical with the content beneath it shown and hidden (a control run proves the same measurement catches the pinned 88 % glass); the menu is the topmost element at its centre; enabled labels have 9.9:1 contrast, disabled 4.2:1, disabled destructive 3.1:1 or more; hover is a neutral `--select-strong`; Escape closes the menu and returns focus to the trigger. The dialog scrim keeps the pinned blur (it is not a menu).
