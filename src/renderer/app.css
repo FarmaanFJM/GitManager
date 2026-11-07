@@ -549,3 +549,5 @@ button.gm-barrow:hover { background: var(--s2); }
 /* the list beside an inspector keeps its own surface and does not run underneath it */
 .gm-view .gm-scroll { background: transparent; }
 .gm-term-pane .xterm-viewport { background-color: transparent !important; }
+.gm-dock-toggle { display: inline-flex; align-items: center; gap: 8px; color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; }
+.gm-dock-toggle .switch[aria-checked="true"] { background: var(--text-2); }
