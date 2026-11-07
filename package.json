@@ -55,7 +55,8 @@
       "package.json",
       "assets/brand/GitManager-Summa.ico",
       "assets/brand/GitManager-Summa-256.png",
-      "assets/brand/GitManager-Summa-32.png"
+      "assets/brand/GitManager-Summa-32.png",
+      "node_modules/node-pty/prebuilds/**/*"
     ],
     "asar": true,
     "win": {
@@ -102,6 +103,12 @@
       ],
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.png"
-    }
+    },
+    "asarUnpack": [
+      "node_modules/node-pty/**"
+    ]
+  },
+  "dependencies": {
+    "node-pty": "1.1.0"
   }
 }
