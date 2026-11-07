@@ -6,7 +6,7 @@ import { api } from './api'
 import type { Actions, Model } from './App'
 import { DeleteRepoDialog } from './DeleteRepoDialog'
 import { removeWords } from './deleteText'
-import { copyText } from './tools/common'
+import { useRepoOps } from './repoOps'
 
 /** Where the menu was opened: a point (right-click) or the row's corner (keyboard), and the repository it is about. */
 export type RepoMenuTarget = { repoId: string; x: number; y: number }
@@ -32,23 +32,38 @@ export function RepoMenu({ model, actions, target, onClose }: { model: Model; ac
     if (wasSelected && next.length) actions.select(next[Math.min(Math.max(idx, 0), next.length - 1)].id)
   }
 
-  const items = (r: Repo): MenuEntry[] => [
-    { label: 'Open repository', icon: 'folder', onSelect: () => actions.select(r.id) },
-    { label: 'Open folder', icon: 'folder-open', onSelect: () => void api.openFolder(r.id).then(x => { if (!x.ok) toast.error(x.error.message) }) },
-    { label: 'Copy folder path', icon: 'copy', onSelect: () => void copyText(r.location.path).then(ok => (ok ? toast.success('Path copied') : toast.error('Could not copy the path'))) },
-    { type: 'sep' },
-    {
-      label: 'Remove from GitManager', icon: 'eye-off', disabled: running,
-      onSelect: () => void (async () => {
-        const yes = await confirm({ title: removeWords.title(r.name), description: 'Only GitManager forgets it. The folder and its files stay where they are, its development profiles are removed, and automatic discovery will not add it again.', confirmLabel: removeWords.confirm, destructive: true, icon: 'eye-off' })
-        if (!yes) return
-        const res = await api.removeRepo(r.id)
-        if (!res.ok) { toast.error(res.error.message); return }
-        await settle([r.id]); toast.success(`${r.name} removed from GitManager`)
-      })(),
-    },
-    { label: 'Delete local folder…', icon: 'trash', danger: true, onSelect: () => setDeleting(r) },
-  ]
+  const ops = useRepoOps(actions)
+  const items = (r: Repo): MenuEntry[] => {
+    const st = model.statuses[r.id]?.status
+    const hasRemote = !st || st.remotes.length > 0
+    const canPull = !!st && (st.sync === 'behind' || st.sync === 'diverged')
+    return [
+      { label: 'Open', icon: 'folder', onSelect: () => actions.select(r.id) },
+      { label: 'Open Terminal', icon: 'terminal', onSelect: () => ops.terminal(r) },
+      { type: 'sep' },
+      { label: 'Fetch', icon: 'refresh', disabled: !hasRemote, onSelect: () => void ops.fetch(r) },
+      { label: 'Pull', icon: 'arrow-down', disabled: !canPull, onSelect: () => void ops.pull(r) },
+      { label: 'Sync with Remote', icon: 'repeat', disabled: !hasRemote, onSelect: () => ops.sync(r) },
+      { type: 'sep' },
+      { label: 'Branches', icon: 'list', onSelect: () => actions.openRepo(r.id, 'branches') },
+      { label: 'Worktrees', icon: 'layers', onSelect: () => actions.openRepo(r.id, 'worktrees') },
+      { type: 'sep' },
+      { label: 'Copy Path', icon: 'copy', onSelect: () => void ops.copyPath(r) },
+      { label: 'Open Folder', icon: 'folder-open', onSelect: () => void ops.openFolder(r) },
+      { type: 'sep' },
+      {
+        label: 'Remove from GitManager', icon: 'eye-off', disabled: running,
+        onSelect: () => void (async () => {
+          const yes = await confirm({ title: removeWords.title(r.name), description: 'Only GitManager forgets it.', target: r.location.path, consequences: ['Files stay on disk', 'Its profiles are removed', 'Discovery will not add it again'], confirmLabel: removeWords.confirm, destructive: true })
+          if (!yes) return
+          const res = await api.removeRepo(r.id)
+          if (!res.ok) { toast.error(res.error.message); return }
+          await settle([r.id]); toast.success(`${r.name} removed`)
+        })(),
+      },
+      { label: 'Delete Local Repository', icon: 'trash', danger: true, onSelect: () => setDeleting(r) },
+    ]
+  }
 
   return (
     <>

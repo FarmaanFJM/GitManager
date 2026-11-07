@@ -76,6 +76,8 @@ export interface GitManagerApi {
   worktreeCheck(repoId: string, path: string): Promise<Result<WorktreeRemovalCheck>>
   worktreeRemove(repoId: string, path: string, force?: boolean): Promise<Result<{ removed: string }>>
   worktreePrune(repoId: string): Promise<Result<{ pruned: string[] }>>
+  /** Suggested folder for a new worktree of `branch`, in the repository's own path syntax. */
+  worktreeSuggest(repoId: string, branch: string): Promise<Result<{ path: string }>>
 
   terminalShells(refresh?: boolean): Promise<ShellOption[]>
   terminalOpen(req: TerminalOpenRequest): Promise<Result<{ info: TerminalInfo; notes: TerminalNote[] }>>
@@ -104,7 +106,8 @@ export interface GitManagerApi {
 
   openFolder(repoId: string): Promise<Result<void>>
   openEditor(repoId: string): Promise<Result<void>>
-  openUrl(profileId: string): Promise<Result<{ via: string }>>
+  /** Opens the service's own URL when it has one, else the profile's. */
+  openUrl(profileId: string, serviceId?: string): Promise<Result<{ via: string }>>
 
   wslDistros(): Promise<Distros>
   addRoot(input: string, distro?: string): Promise<Result<Root>>
@@ -196,7 +199,7 @@ export const API_METHODS = [
   'discoveryStatus', 'rescan', 'unignoreRepo', 'branchOverview', 'branchDetail', 'setCompareBase',
   'storageState', 'storageAuth', 'storageScan', 'storageCancel', 'storageCandidates', 'storagePreview', 'storageDelete', 'storagePin', 'storageProtectRepo',
   'storageSavePolicy', 'storageSaveSettings', 'storageRunAutomation', 'storageDismissRecommendation', 'storageAudit', 'storageOpen',
-  'syncPlan', 'syncExecute', 'worktreeList', 'worktreeAdd', 'worktreeCheck', 'worktreeRemove', 'worktreePrune',
+  'syncPlan', 'syncExecute', 'worktreeList', 'worktreeAdd', 'worktreeCheck', 'worktreeRemove', 'worktreePrune', 'worktreeSuggest',
   'terminalShells', 'terminalOpen', 'terminalList', 'terminalReplay', 'terminalWrite', 'terminalResize', 'terminalClose',
   'procsScan', 'procsStop', 'procsEnv', 'configFiles', 'portConflicts', 'runnersDependencies', 'runnersEnvironment',
   'runnersState', 'runnersAuth', 'runnersScan', 'runnersCancel', 'runnersRefresh', 'runnersSaveSettings', 'runnersAddRoot', 'runnersRemoveRoot', 'runnersSshHosts', 'runnersAllowSsh', 'runnersProbe',

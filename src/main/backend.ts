@@ -30,7 +30,7 @@ import { shellFor as runnerShellFor, validSshAlias, type HostShell } from '../co
 import { RepoDeleter } from '../core/repoDelete.js'
 import { DevTools } from './devtools.js'
 import { SyncService } from '../core/git/sync.js'
-import { WorktreeService } from '../core/git/worktrees.js'
+import { WorktreeService, suggestWorktreePath } from '../core/git/worktrees.js'
 import { changedFiles, summarizeAffected } from '../core/affected.js'
 import { inspectDependencies } from '../core/runners/deps.js'
 import { readConfigFiles } from '../core/procs/env.js'
@@ -323,6 +323,9 @@ export class Backend {
     })
   }
   async worktreePrune(id: unknown): Promise<Result<{ pruned: string[] }>> { return this.worktrees.prune(this.repo(id).location) }
+  async worktreeSuggest(id: unknown, branch: unknown): Promise<Result<{ path: string }>> {
+    return ok({ path: suggestWorktreePath(this.repo(id).location, v.str(branch, 'Branch', { max: 255, allowEmpty: false })) })
+  }
 
   /* ------------------------------------------------------------ terminals, processes, environments */
 
@@ -440,10 +443,12 @@ export class Backend {
     })
   }
 
-  async openUrl(profileId: unknown): Promise<Result<{ via: string }>> {
+  async openUrl(profileId: unknown, serviceId?: unknown): Promise<Result<{ via: string }>> {
     const p = this.profile(profileId)
-    if (!p.openUrl) return err('NO_URL', 'This profile has no URL to open. Add one in the profile.')
-    const r = await openInBrowser(p.openUrl, p.browser, { os: this.os, chromePath: this.store.data.settings.chromePath, openDefault: u => this.host.openExternal(u) })
+    // The address always comes from the stored profile (a service's own URL, else the profile's), never from the page.
+    const url = serviceId === undefined ? p.openUrl : p.services.find(sv => sv.id === v.id(serviceId, 'Service id'))?.url || p.openUrl
+    if (!url) return err('NO_URL', 'No URL')
+    const r = await openInBrowser(url, p.browser, { os: this.os, chromePath: this.store.data.settings.chromePath, openDefault: u => this.host.openExternal(u) })
     return r.ok ? ok({ via: r.via }) : err('OPEN_FAILED', r.message)
   }
 

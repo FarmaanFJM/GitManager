@@ -11,6 +11,8 @@ import { StorageView } from './Storage'
 import { ToolsView, type ToolId } from './tools/Tools'
 import { Workspace, WelcomeEmpty } from './Workspace'
 import { OverviewView } from './Overview'
+import { SyncDialog } from './SyncDialog'
+import { useToast } from '../../third_party/summa-ui/src/presets'
 import { ProcessesView } from './Processes'
 import { isTyping } from './util'
 import { TerminalDock, type DockApi } from './TerminalDock'
@@ -53,6 +55,8 @@ export type Actions = {
   setRestartHint: (repoId: string, hint: import('../shared/gitflow').AffectedSummary | null) => void
   /** A short result under the app (Synced, Fetched, ...): one toast. */
   tab: { repoId: string; tab: RepoTab } | null
+  /** Opens Sync with Remote for a repository. */
+  sync: (repoId: string) => void
 }
 
 export function App() {
@@ -68,6 +72,8 @@ export function App() {
   const [tab, setTab] = useState<{ repoId: string; tab: RepoTab } | null>(null)
   const dock = useRef<DockApi | null>(null)
   const [noteText, setNoteText] = useState<string | null>(null)
+  const [syncId, setSyncId] = useState<string | null>(null)
+  const toastApi = useToast()
   const [dialog, setDialog] = useState<'add' | 'find' | null>(null)
   const [discovery, setDiscovery] = useState<DiscoveryStatus | null>(null)
   const logStore = useRef(new Map<string, LogLine[]>())
@@ -180,6 +186,7 @@ export function App() {
     openRepo: (id: string, t?: RepoTab) => select(id, t),
     openTerminal: (target: TerminalTarget, shellId?: string) => { void dock.current?.open({ target, shellId }) },
     restartHints, tab,
+    sync: (id: string) => setSyncId(id),
     setRestartHint: (repoId: string, hint: import('../shared/gitflow').AffectedSummary | null) => setRestartHints(m => { const n = { ...m }; if (hint && hint.needsAttention) n[repoId] = hint; else delete n[repoId]; return n }),
     markFetched: (id: string) => setFetchedAt(m => ({ ...m, [id]: Date.now() })),
     addRepoDialog: () => setDialog('add'),
@@ -212,6 +219,10 @@ export function App() {
       <TerminalDock register={d => { dock.current = d }} target={repo ? { type: 'repo', repoId: repo.id } : null} onNote={(n: TerminalNote[]) => setNoteText(n.map(x => x.message).join(' '))} />
       {noteText && <InlineAlert tone="warn" action={{ label: 'Dismiss', onClick: () => setNoteText(null) }}>{noteText}</InlineAlert>}
       </div>
+      {syncId && data?.repos.find(r => r.id === syncId) && (
+        <SyncDialog key={syncId} repo={data.repos.find(r => r.id === syncId)!} open onClose={() => setSyncId(null)}
+          onFinished={text => { const id = syncId; (text === 'Synced' ? toastApi.success : toastApi.warning)(text); void refresh(id, { remote: true }) }} />
+      )}
       <AddRepoDialog open={dialog === 'add'} model={model} onClose={() => setDialog(null)} onAdded={id => void onAdded([id])} />
       <FindReposDialog open={dialog === 'find'} model={model} onClose={() => setDialog(null)} onAdded={ids => void onAdded(ids)} onRootsChanged={reload} />
     </AppShell>

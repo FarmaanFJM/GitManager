@@ -93,6 +93,8 @@ export function Sidebar({ model, actions, view }: { model: Model; actions: Actio
       )}
       <RepoMenu model={model} actions={actions} target={menu} onClose={() => setMenu(null)} />
       <div className="gm-side-foot">
+        <NavItem icon="home" label="Repositories" current={view.kind === 'overview'} onClick={() => actions.setView({ kind: 'overview' })} />
+        <NavItem icon="activity" label="Processes" current={view.kind === 'processes'} onClick={() => actions.setView({ kind: 'processes' })} />
         <NavItem icon="layers" label="Tools" current={view.kind === 'tools'} onClick={() => actions.setView({ kind: 'tools', tool: null })} />
         <NavItem icon="drive" label="Storage" current={view.kind === 'storage'} onClick={() => actions.setView({ kind: 'storage' })} />
         <NavItem icon="settings" label="Settings" current={view.kind === 'settings'} onClick={() => actions.setView({ kind: 'settings' })} />

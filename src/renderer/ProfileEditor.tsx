@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Button, Dropdown, IconButton } from '../../third_party/summa-ui/src/ui'
 import { useConfirm } from '../../third_party/summa-ui/src/presets'
 import type { Browser, OpError, Profile, Readiness, Repo, Runtime, ServiceDef } from '../shared/types'
@@ -44,6 +44,8 @@ export function ProfileEditor({ model, actions, repo, initial, isNew }: { model:
   const [error, setError] = useState<OpError | null>(null)
   const [saving, setSaving] = useState(false)
   const confirm = useConfirm()
+  const [trees, setTrees] = useState<{ value: string; label: string }[]>([])
+  useEffect(() => { void api.worktreeList(repo.id).then(r => { if (r.ok) setTrees(r.value.filter(w => !w.main && !w.bare).map(w => ({ value: w.path, label: `${w.branch ?? 'detached'}  ${w.path}` }))) }) }, [repo.id])
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD(x => ({ ...x, [k]: v }))
   const setSvc = (i: number, patch: Partial<Draft['services'][number]>) => setD(x => ({ ...x, services: x.services.map((s, j) => (j === i ? { ...s, ...patch } : s)) }))
@@ -70,7 +72,7 @@ export function ProfileEditor({ model, actions, repo, initial, isNew }: { model:
     back()
   }
   const remove = async () => {
-    const yes = await confirm({ title: `Delete profile ${initial.name}?`, description: 'Its services and settings are removed from GitManager. Your repository is not changed.', confirmLabel: 'Delete profile', destructive: true })
+    const yes = await confirm({ title: `Delete profile ${initial.name}?`, description: 'Your repository is not changed.', confirmLabel: 'Delete profile', destructive: true })
     if (!yes) return
     const r = await api.removeProfile(initial.id)
     if (!r.ok) { setError(r.error); return }
@@ -97,6 +99,10 @@ export function ProfileEditor({ model, actions, repo, initial, isNew }: { model:
             <Field label="Runs in">{() => <Dropdown label="Runs in" value={runtimeValue(d.runtime)} options={runtimeOptions} onChange={v => set('runtime', valueRuntime(v))} />}</Field>
             <Field label="Working directory">{id => <input id={id} className="input gm-mono" placeholder="Repository root" value={d.workingDir} onChange={e => set('workingDir', e.target.value)} />}</Field>
             <Field label="Open when ready">{id => <input id={id} className="input gm-mono" placeholder="http://localhost:5173" value={d.openUrl} onChange={e => set('openUrl', e.target.value)} />}</Field>
+            {(trees.length > 0 || d.worktreePath) && (
+              <Field label="Worktree">{() => <Dropdown label="Worktree" value={d.worktreePath ?? ''} options={[{ value: '', label: 'Repository root' }, ...trees, ...(d.worktreePath && !trees.some(t => t.value === d.worktreePath) ? [{ value: d.worktreePath, label: d.worktreePath }] : [])]}
+                onChange={v => setD(x => { const { worktreePath: _w, ...rest } = x; return v ? { ...rest, worktreePath: v } : rest as Draft })} />}</Field>
+            )}
             <Field label="Browser">{() => <Dropdown<Browser> label="Browser" value={d.browser} onChange={v => set('browser', v)}
               options={[{ value: 'chrome', label: 'Chrome' }, { value: 'edge', label: 'Edge' }, { value: 'default', label: 'System default' }]} />}</Field>
           </div>
@@ -111,12 +117,12 @@ export function ProfileEditor({ model, actions, repo, initial, isNew }: { model:
                 <input className="input gm-svc-edit-name" aria-label="Service name" placeholder="Name" value={s.name} onChange={e => setSvc(i, { name: e.target.value })} />
                 <span className="grow" />
                 <IconButton icon="x" size="sm" label={`Remove ${s.name || 'service'}`} disabled={d.services.length === 1}
-                  onClick={() => set('services', d.services.filter((_, j) => j !== i))} />
+                  onClick={() => set('services', d.services.filter((_, j) => j !== i).map(o => ({ ...o, dependsOn: (o.dependsOn ?? []).filter(x => x !== s.id) })))} />
               </div>
               <div className="gm-grid">
                 <Field label="Command" wide>{id => <input id={id} className="input gm-mono" placeholder="npm run dev" value={s.command} onChange={e => setSvc(i, { command: e.target.value })} spellCheck={false} />}</Field>
                 <Field label="Directory">{id => <input id={id} className="input gm-mono" placeholder="Same as profile" value={s.cwd} onChange={e => setSvc(i, { cwd: e.target.value })} spellCheck={false} />}</Field>
-                <Field label="Ready when" hint={s.readiness.type === 'none' ? 'Without a check the service shows as running, never ready.' : undefined}>
+                <Field label="Ready when">
                   {() => (
                     <div className="row gm-ready">
                       <Dropdown<Readiness['type']> label="Ready when" value={s.readiness.type}
@@ -130,6 +136,11 @@ export function ProfileEditor({ model, actions, repo, initial, isNew }: { model:
                 </Field>
                 {s.readiness.type !== 'none' && (
                   <Field label="Wait up to (seconds)">{id => <input id={id} className="input gm-port" inputMode="numeric" value={String(s.readyTimeout)} onChange={e => setSvc(i, { readyTimeout: Number(e.target.value.replace(/\D/g, '')) || 0 })} />}</Field>
+                )}
+                <Field label="URL">{id => <input id={id} className="input gm-mono" placeholder="http://localhost:5173" value={s.url ?? ''} onChange={e => setSvc(i, { url: e.target.value })} spellCheck={false} />}</Field>
+                <Field label="Ports">{id => <input id={id} className="input gm-mono" placeholder="8080, 5173" value={(s.ports ?? []).join(', ')} onChange={e => setSvc(i, { ports: e.target.value.split(/[ ,]+/).map(x => Number(x)).filter(n => Number.isInteger(n) && n > 0 && n < 65536) })} spellCheck={false} />}</Field>
+                {d.services.length > 1 && (
+                  <Field label="Starts after">{() => <Dropdown<string> multiple label="Starts after" placeholder="Nothing" value={s.dependsOn ?? []} options={d.services.filter(o => o.id !== s.id).map(o => ({ value: o.id, label: o.name || 'Unnamed' }))} onChange={v => setSvc(i, { dependsOn: v })} />}</Field>
                 )}
                 <Field label="Environment variables">{id => <textarea id={id} className="input gm-mono gm-env" rows={Math.max(2, s.envText.split('\n').length)} placeholder="KEY=value" value={s.envText} onChange={e => setSvc(i, { envText: e.target.value })} spellCheck={false} />}</Field>
                 <Field label="Env file">{id => <input id={id} className="input gm-mono" placeholder=".env.local" value={s.envFile} onChange={e => setSvc(i, { envFile: e.target.value })} spellCheck={false} />}</Field>

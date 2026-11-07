@@ -12,7 +12,7 @@ const METHODS = [
   'discoveryStatus', 'rescan', 'unignoreRepo', 'branchOverview', 'branchDetail', 'setCompareBase',
   'storageState', 'storageAuth', 'storageScan', 'storageCancel', 'storageCandidates', 'storagePreview', 'storageDelete', 'storagePin', 'storageProtectRepo',
   'storageSavePolicy', 'storageSaveSettings', 'storageRunAutomation', 'storageDismissRecommendation', 'storageAudit', 'storageOpen',
-  'syncPlan', 'syncExecute', 'worktreeList', 'worktreeAdd', 'worktreeCheck', 'worktreeRemove', 'worktreePrune',
+  'syncPlan', 'syncExecute', 'worktreeList', 'worktreeAdd', 'worktreeCheck', 'worktreeRemove', 'worktreePrune', 'worktreeSuggest',
   'terminalShells', 'terminalOpen', 'terminalList', 'terminalReplay', 'terminalWrite', 'terminalResize', 'terminalClose',
   'procsScan', 'procsStop', 'procsEnv', 'configFiles', 'portConflicts', 'runnersDependencies', 'runnersEnvironment',
   'runnersState', 'runnersAuth', 'runnersScan', 'runnersCancel', 'runnersRefresh', 'runnersSaveSettings', 'runnersAddRoot', 'runnersRemoveRoot', 'runnersSshHosts', 'runnersAllowSsh', 'runnersProbe',

@@ -10,7 +10,7 @@
   "approvedAt": "2026-10-28T10:30:50Z",
   "vendoredPath": "third_party/summa-ui/guidance",
   "reference": {
-    "note": "React components and shared CSS copied byte for byte (SUMMA_INTEGRATION.md allows copying; not a runtime dependency). The guidance bundle above is the approved guidance-v0.1.0 release and is unchanged. The reference files also include the TOP primitives (src/ui/top.tsx, src/styles/top.css) from an unreleased Summa-UI change: ccr-fe6a0765-1jxlnq@f2efa46e0e1cfa556a134fc389c9553a45eb3e90. They are a candidate until the owner releases them; see docs/SUMMA_UI_ADOPTION.md.",
+    "note": "React components and shared CSS copied byte for byte (SUMMA_INTEGRATION.md allows copying; not a runtime dependency). The guidance bundle above is the approved guidance-v0.1.0 release and is unchanged. The reference files also include the TOP primitives (src/ui/top.tsx, src/styles/top.css) from an unreleased Summa-UI change: ccr-fe6a0765-1jxlnq@c9cefda8e8aad7aa2abb384050366283c4a0b53a. They are a candidate until the owner releases them; see docs/SUMMA_UI_ADOPTION.md.",
     "basePath": "third_party/summa-ui",
     "files": [
       {
