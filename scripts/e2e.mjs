@@ -90,7 +90,8 @@ report.summaChecks = {}
 const evaluate = async (name) => { const r = await runSummaChecks(page); report.summaChecks[name] = r; const fails = r.findings.filter(f => f.status === 'fail'); console.log(`     Summa-UI checks on ${name}: ${fails.length} fail, ${r.findings.length - fails.length} needs-human, ${r.focusStops} focus stops`) }
 // Summa-UI popovers close when the page scrolls (by design), so bring a trigger into view before opening it.
 const openDropdown = async (scope, name) => { const b = scope.getByRole('button', { name }); await b.scrollIntoViewIfNeeded(); await page.waitForTimeout(250); await b.click() }
-const fact = (label) => page.locator('.gm-fact').filter({ has: page.locator('dt', { hasText: label }) }).locator('dd')
+const F = () => page.locator('.gm-facts-line')
+const factsHave = async (...parts) => { const t = (await F().innerText().catch(() => '')) ; return parts.every(p => t.includes(p)) }
 
 async function main() {
   for (const p of [5173, 8080]) if (await portOpen(p)) throw new Error(`port ${p} is in use; stop that process first`)
@@ -117,7 +118,7 @@ async function main() {
   check(git(home.engine, 'status', '--porcelain') === '' && git(home.engine, 'stash', 'list') === '', 'Discovery left the repositories untouched')
 
   // 2. Register an existing local repository (outside the scanned folders) from the sidebar's add menu
-  await page.getByRole('button', { name: 'Add repositories' }).click()
+  await page.getByRole('complementary').getByRole('button', { name: 'Add repositories' }).click()
   await page.getByRole('menuitem', { name: 'Add repository…' }).click()
   await page.getByLabel('Folder').fill(fx.local)
   await shot('02-add-repository')
@@ -126,11 +127,11 @@ async function main() {
   check(await page.locator('.gm-repo-list .nav-item', { hasText: 'caissa-trainer' }).isVisible(), 'Register an existing repository')
 
   // 3. Branch and working tree status
-  await fact('Working tree').filter({ hasText: 'Clean' }).waitFor()
+  await F().filter({ hasText: 'Clean' }).waitFor()
   check((await page.locator('.gm-branch').innerText()).includes('main'), 'Current branch shown', 'main')
-  check((await fact('origin/main').innerText()) === 'Up to date', 'Working tree and sync status shown', 'Clean, Up to date')
-  await page.locator('.gm-fact dd', { hasText: 'reachable' }).waitFor({ timeout: 15000 })
-  check(true, 'Remote configured and reachable')
+  check(await factsHave('origin/main', 'Up to date', 'Clean'), 'Working tree and sync status shown', 'Clean, Up to date')
+  const reach = await page.evaluate(async () => { const r = (await window.gitmanager.state()).repos.find(x => x.name === 'caissa-trainer'); return window.gitmanager.checkRemote(r.id) })
+  check(reach.ok && reach.value?.reachable, 'Remote configured and reachable')
 
   // The teammate pushes two commits and a feature branch; I have uncommitted work in a file they do not touch.
   commitFile(fx.teammate, 'frontend/index.html', readFileSync(join(fx.teammate, 'frontend/index.html'), 'utf8').replace('<h1>CaissaTrainer</h1>', '<h1>CaissaTrainer</h1><p>Openings trainer</p>'), 'Add tagline')
@@ -141,8 +142,8 @@ async function main() {
   git(fx.teammate, 'push', '-q', '-u', 'origin', 'feature/board-themes')
   writeFileSync(join(fx.local, 'README.md'), readFileSync(join(fx.local, 'README.md'), 'utf8') + '\nMy local notes, not committed.\n')
   await page.getByRole('button', { name: 'More actions' }).click()
-  await page.getByRole('menuitem', { name: 'Refresh status' }).click()
-  await fact('Working tree').filter({ hasText: '1 changed' }).waitFor()
+  await page.getByRole('menuitem', { name: /^Refresh/ }).click()
+  await F().filter({ hasText: '1 changed' }).waitFor()
   check(true, 'Uncommitted change detected', '1 changed')
 
   // 4. Fetch
@@ -152,7 +153,7 @@ async function main() {
   check(git(fx.local, 'rev-parse', 'HEAD') === headBefore, 'Fetch changes no local branch or file')
 
   // 5. Ahead, behind or diverged
-  check((await fact('origin/main').innerText()) === '2 commits to pull', 'Behind identified', '2 commits to pull')
+  check(await factsHave('2 commits to pull'), 'Behind identified', '2 commits to pull')
   await page.getByRole('tab', { name: 'History' }).click()
   await page.getByText('Incoming from origin/main').waitFor()
   check(await page.locator('.gm-commit-subject', { hasText: 'Add tagline' }).first().isVisible(), 'Incoming commits listed')
@@ -161,7 +162,7 @@ async function main() {
 
   // 6. Safe fast-forward pull
   await page.getByRole('button', { name: /Pull 2/ }).click()
-  await fact('origin/main').filter({ hasText: 'Up to date' }).waitFor({ timeout: 30000 })
+  await F().filter({ hasText: 'Up to date' }).waitFor({ timeout: 30000 })
   const localNotes = readFileSync(join(fx.local, 'README.md'), 'utf8').includes('My local notes')
   check(git(fx.local, 'rev-parse', 'HEAD') === git(fx.local, 'rev-parse', 'origin/main') && localNotes && git(fx.local, 'stash', 'list') === '', 'Fast-forward pull', 'HEAD = origin/main, uncommitted notes kept, no stash')
 
@@ -216,7 +217,7 @@ async function main() {
   await svc.nth(1).getByLabel('Directory').fill('backend')
   await openDropdown(svc.nth(1), 'Ready when')
   await page.getByRole('option', { name: 'Port is open' }).click()
-  await svc.nth(1).getByLabel('Port').fill('8080')
+  await svc.nth(1).getByLabel('Port', { exact: true }).fill('8080')
   await svc.nth(1).getByLabel('Wait up to (seconds)').fill('240')
   if (wgetrc) await svc.nth(1).getByLabel('Environment variables').fill(`WGETRC=${wgetrc}`)
   await shot('06-profile-editor')
@@ -226,14 +227,14 @@ async function main() {
   check(await page.locator('.gm-toolbar .select', { hasText: 'CaissaTrainer' }).isVisible(), 'Profile saved and selected')
 
   // 9. Start frontend and backend (after the one-time trust confirmation)
-  await page.getByRole('button', { name: 'Run', exact: true }).click()
+  await page.getByRole('button', { name: 'Start Profile', exact: true }).click()
   await page.getByRole('dialog', { name: 'Run CaissaTrainer?' }).waitFor()
   await shot('07-trust-confirmation')
   await page.getByRole('button', { name: 'Trust and run' }).click()
   await page.locator('.gm-svc-state', { hasText: 'Starting' }).first().waitFor({ timeout: 10000 })
 
   // 10. Startup progress and logs, independently per service
-  await page.locator('.gm-svc', { hasText: 'Backend' }).click()
+  await page.locator('.gm-svc', { hasText: 'Backend' }).locator('.gm-svc-name').click()
   await page.waitForTimeout(2500)
   await shot('08-services-starting')
   const sawStarting = await page.locator('.gm-svc', { hasText: 'Backend' }).locator('.gm-svc-state').innerText()
@@ -242,11 +243,11 @@ async function main() {
   check(frontReady, 'Frontend Ready when http://localhost:5173 responds')
   const backReady = await waitFor(async () => (await page.locator('.gm-svc', { hasText: 'Backend' }).locator('.gm-svc-state').innerText()) === 'Ready', 240000, 1000)
   check(backReady, 'Backend Ready when port 8080 accepts connections')
-  check(await page.locator('.gm-log-line', { hasText: 'Started App' }).first().isVisible(), 'Backend log captured (Spring Boot output)')
+  check(await page.locator('.top-log__line', { hasText: 'Started App' }).first().isVisible(), 'Backend log captured (Spring Boot output)')
   await shot('09-services-ready')
   await evaluate('09-services-ready')
-  await page.locator('.gm-svc', { hasText: 'Frontend' }).click()
-  await page.locator('.gm-log-line', { hasText: /VITE|Local:/ }).first().waitFor()
+  await page.locator('.gm-svc', { hasText: 'Frontend' }).locator('.gm-svc-name').click()
+  await page.locator('.top-log__line', { hasText: /VITE|Local:/ }).first().waitFor()
   check(true, 'Frontend log captured (Vite output)')
 
   // 11. Open the ready frontend in Chrome
@@ -258,7 +259,7 @@ async function main() {
     await shot('10-settings')
   await evaluate('10-settings')
     await page.locator('.gm-repo-list .nav-item', { hasText: 'caissa-trainer' }).click()
-    await page.getByRole('button', { name: 'Open in browser' }).click()
+    await page.getByRole('button', { name: 'Open URL' }).click()
     const opened = await waitFor(async () => {
       try { const tabs = await (await fetch('http://127.0.0.1:9333/json')).json(); return tabs.some(t => t.url.startsWith('http://localhost:5173') && /backend UP/.test(t.title)) } catch { return false }
     }, 60000) // a cold Chrome start on a busy CI runner, then Vite and Spring Boot
@@ -276,7 +277,7 @@ async function main() {
 
   // 12. Stop both services
   const javaBefore = spawnSync('pgrep', ['-f', 'demo.App']).stdout.toString().trim()
-  await page.getByRole('button', { name: 'Stop', exact: true }).click()
+  await page.getByRole('button', { name: 'Stop Profile', exact: true }).click()
   const stopped = await waitFor(async () => (await page.locator('.gm-svc-state', { hasText: 'Stopped' }).count()) === 2, 30000)
   const portsFree = !(await portOpen(5173)) && !(await portOpen(8080))
   const javaAfter = spawnSync('pgrep', ['-f', 'demo.App']).stdout.toString().trim()
@@ -288,7 +289,7 @@ async function main() {
   await page.getByRole('heading', { name: 'chess-engine-review' }).waitFor()
   await page.getByRole('button', { name: 'More actions' }).click()
   await page.getByRole('menuitem', { name: 'Remove from GitManager' }).click()
-  await page.getByRole('alertdialog').getByRole('button', { name: 'Remove repository' }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Remove from GitManager' }).click()
   await nav('chess-engine-review').waitFor({ state: 'detached' })
   check(existsSync(home.review), 'Remove a discovered repository: the folder stays on disk')
   await nav('caissa-trainer').click()
@@ -297,11 +298,12 @@ async function main() {
   // 13. Close and reopen: registration and configuration persist
   await closeApp()
   await launch()
-  await page.getByRole('heading', { name: 'caissa-trainer' }).waitFor()
+  await page.getByRole('heading', { name: 'Repositories' }).waitFor() // GitManager opens to the overview of repositories
   await page.waitForTimeout(1500)
   await page.locator('.gm-discovery').waitFor({ state: 'detached', timeout: 30000 })
   const afterRestart = await page.locator('.gm-repo-list .nav-item .truncate').allInnerTexts()
   check(afterRestart.includes('chess-engine') && !afterRestart.includes('chess-engine-review'), 'Reopen: discovery ran again, the removed repository stayed removed', afterRestart.join(', '))
+  await nav('caissa-trainer').click()
   await page.locator('.gm-svc-name', { hasText: 'Backend' }).waitFor()
   const persisted = (await page.locator('.gm-toolbar .select').innerText()).includes('CaissaTrainer') && (await page.locator('.gm-branch').innerText()).includes('feature/board-themes')
   check(persisted, 'Reopen: repository, profile and selection restored')
@@ -319,7 +321,7 @@ async function main() {
   commitFile(fx.local, 'local.txt', 'mine\n', 'Local work')
   git(fx.teammate, 'checkout', '-q', 'main'); git(fx.teammate, 'pull', '-q'); commitFile(fx.teammate, 'remote.txt', 'theirs\n', 'Remote work'); git(fx.teammate, 'push', '-q')
   await page.getByRole('button', { name: 'Fetch' }).click()
-  await fact('origin/main').filter({ hasText: 'Diverged' }).waitFor({ timeout: 30000 })
+  await F().filter({ hasText: 'Diverged' }).waitFor({ timeout: 30000 })
   const head = git(fx.local, 'rev-parse', 'HEAD')
   const tree = git(fx.local, 'status', '--porcelain')
   await page.getByRole('button', { name: /Pull 1/ }).click()
