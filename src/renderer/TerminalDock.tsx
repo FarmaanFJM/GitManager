@@ -180,7 +180,7 @@ export function TerminalDock({ register, target, onNote }: {
       {current?.state === 'exited' && (
         <div className="gm-dock-exit" role="status">
           <span>Exited{current.exitCode !== null ? ` ${current.exitCode}` : ''}</span>
-          <Button variant="ghost" onClick={() => void open({ target: current.target, shellId: current.shell.id })}>Reopen</Button>
+          {current.target && <Button variant="ghost" onClick={() => void open({ target: current.target!, shellId: current.shell.id })}>Reopen</Button>}
           <Button variant="ghost" onClick={() => void close(current.id)}>Close</Button>
         </div>
       )}
