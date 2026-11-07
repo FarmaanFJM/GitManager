@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron } from 'playwright'
 import { readFileSync } from 'node:fs'
-import { checkVersionInfo, readVersionInfo } from './release/check.mjs'
+import { checkVersionInfo, readVersionInfo } from './versioning/check.mjs'
 import { titlebarProblems, titlebarReport } from './e2e/window.mjs'
 
 const installer = resolve(process.argv[2] ?? '')

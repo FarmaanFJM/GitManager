@@ -80,7 +80,7 @@ jobs:
       - name: Build installer and portable zip (unsigned)
         run: npx electron-builder --win --x64 --publish never
       - name: Verify the artifacts carry the application version (file names, executable and installer version resources)
-        run: node scripts/release/check.mjs --artifacts release
+        run: node scripts/versioning/check.mjs --artifacts release
       - name: Verify the GitManager icon is embedded (not the default Electron icon)
         shell: bash
         run: |

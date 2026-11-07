@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error plain ES module script
-import { artifactNames, checkArtifacts, checkSource, checkVersionInfo, strayArtifacts, versionMatches, versionOfTag } from '../scripts/release/check.mjs'
+import { artifactNames, checkArtifacts, checkSource, checkVersionInfo, strayArtifacts, versionMatches, versionOfTag } from '../scripts/versioning/check.mjs'
 
 const pkg = (version: string) => ({ name: 'gitmanager', version })
 const lock = (version: string, root = version) => ({ name: 'gitmanager', version, packages: { '': { name: 'gitmanager', version: root } } })

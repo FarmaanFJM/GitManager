@@ -29,7 +29,7 @@
     "test:e2e:runners": "npm run build && node scripts/e2e-runners.mjs",
     "test:e2e:menus": "npm run build && node scripts/e2e-menus.mjs",
     "test:e2e:devtools": "npm run build && node scripts/e2e-devtools.mjs",
-    "verify:release": "node scripts/release/check.mjs"
+    "verify:release": "node scripts/versioning/check.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
