@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button, DrawerToggle, Icon, Tabs } from '../../third_party/summa-ui/src/ui'
+import { Button, Details, DrawerToggle, Icon, Tabs } from '../../third_party/summa-ui/src/ui'
 import { formatBytes, snapshotTotals } from '../shared/storageTotals'
 import type { StorageState } from '../shared/storage'
 import { api } from './api'
@@ -20,7 +20,7 @@ function AuthNotice({ st }: { st: StorageState }) {
   const a = st.auth
   if (!a || a.state === 'ok') {
     if (a && a.state === 'ok' && a.canWrite === false) {
-      return <div className="gm-notice" role="status"><Icon name="lock" size={16} /><div><p>Read-only: this GitHub CLI sign-in has no <span className="gm-mono">repo</span> scope, so GitManager can scan but not delete.</p><p className="gm-hint">To allow deletion run <span className="gm-mono">gh auth refresh -s repo</span> in a terminal. Nothing else is requested.</p></div></div>
+      return <div className="gm-notice" role="status"><Icon name="lock" size={16} /><div><p>Read-only: the GitHub sign-in has no <span className="gm-mono">repo</span> scope.</p><Details label="Allow deletion"><p>Run <span className="gm-mono">gh auth refresh -s repo</span> in a terminal.</p></Details></div></div>
     }
     return null
   }
@@ -79,8 +79,8 @@ export function StorageView() {
 
       <AuthNotice st={st} />
       {banner && <ErrorBanner error={banner} onDismiss={() => setBanner(null)} />}
-      {st.scan.cancelled && !scanning && <p className="gm-branch-problem" role="status"><Icon name="info" size={15} />The last scan was stopped; the previous results are shown.</p>}
-      {st.snapshot && st.snapshot.scannedAt && <p className="gm-branch-meta faint gm-scan-meta">Read from GitHub {ago(st.snapshot.scannedAt)}. Figures do not update until you scan again.</p>}
+      {st.scan.cancelled && !scanning && <p className="gm-branch-problem" role="status"><Icon name="info" size={15} />Last scan stopped</p>}
+      {st.snapshot && st.snapshot.scannedAt && <p className="gm-branch-meta faint gm-scan-meta">Read from GitHub {ago(st.snapshot.scannedAt)}</p>}
 
       <div className="gm-tabs-row">
         <Tabs label="Storage" value={tab} onChange={v => { setTab(v); if (v !== 'repos') setRepoName(null) }} items={[
