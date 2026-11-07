@@ -505,3 +505,47 @@ button.gm-barrow:hover { background: var(--s2); }
 .gm-ov-actions { display: inline-flex; gap: 2px; }
 .gm-hint-row { padding: 0 16px 8px; flex: none; }
 .gm-facts-line { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0; padding: 0 20px 12px; flex: none; color: var(--text-2); font-size: var(--fs-sm); }
+
+/* =====================================================================================================================
+   Section structure. Regions read as distinct by elevation and one hairline, never by loud boxes:
+     page --s0  ·  main panel --s1  ·  docks and inspectors --s2 (raised one step) with a --line-strong edge
+   Sidebar: repositories above, navigation below, separated by a hairline and a raised container.
+   Main column: the view above, the terminal dock below. Right: the inspector of the selected item.
+   ===================================================================================================================== */
+
+/* ---------- sidebar: the navigation is its own region under the repository list ---------- */
+.gm-side-foot { margin-top: 8px; padding: 6px; border-radius: var(--r-lg); background: var(--s1); display: flex; flex-direction: column; gap: 2px; flex: none; }
+.gm-side-foot .nav-item[aria-current="true"] { background: var(--s3); color: var(--text); }
+.gm-repo-list { padding-bottom: 6px; }
+.gm-side-head { border-bottom: 0; }
+
+/* ---------- terminal dock ---------- */
+.gm-dock, .gm-dock-bar { background: var(--s2); box-shadow: 0 -1px 0 var(--line-strong); flex: none; position: relative; } /* the edge is a shadow, not a border: no border inside a border (P01) */
+.gm-dock { display: flex; flex-direction: column; min-height: 0; }
+.gm-dock-bar { display: flex; align-items: center; min-height: 36px; padding: 0 8px; }
+.gm-dock-grip { position: absolute; left: 0; right: 0; top: -4px; height: 8px; cursor: ns-resize; z-index: 2; }
+.gm-dock-grip:hover { background: var(--line); }
+.gm-dock-head { display: flex; align-items: center; gap: 6px; min-height: 38px; padding: 0 8px 0 10px; border-bottom: 1px solid var(--line); flex: none; }
+.gm-dock-tabs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow-x: auto; }
+.gm-dock-tab { display: inline-flex; align-items: center; gap: 2px; height: 28px; padding: 0 2px 0 4px; border-radius: var(--r-sm); color: var(--text-2); flex: none; }
+.gm-dock-tab:hover { background: var(--hover); }
+.gm-dock-tab[data-active] { background: var(--s3); color: var(--text); }
+.gm-dock-tab-btn { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px; max-width: 220px; background: none; border: 0; color: inherit; font: inherit; font-size: var(--fs-sm); cursor: pointer; border-radius: var(--r-sm); }
+.gm-dock-tab-btn:focus-visible { outline: 1.5px solid var(--focus); outline-offset: -1px; }
+.gm-dock-error { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 12px; color: var(--danger); font-size: var(--fs-sm); flex: none; }
+.gm-dock-exit { display: flex; align-items: center; gap: 8px; padding: 4px 12px; color: var(--text-2); font-size: var(--fs-sm); border-bottom: 1px solid var(--line); flex: none; }
+.gm-term-host { flex: 1; min-height: 0; padding: 8px 4px 8px 12px; overflow: hidden; }
+.gm-term-pane { height: 100%; }
+.gm-term-pane .xterm { height: 100%; }
+
+/* ---------- inspector: the contextual panel of the selected item (branches, processes, runners) ---------- */
+.gm-bdetail { background: var(--s2); box-shadow: -1px 0 0 var(--line-strong); }
+.gm-bdetail-head { min-height: 52px; border-bottom: 1px solid var(--line); background: var(--s2); }
+.gm-bdetail .input, .gm-bdetail .select { background: var(--s3); }
+.gm-bdetail-actions { border-bottom: 1px solid var(--line); padding-bottom: 14px; margin-bottom: 12px; }
+.gm-pactions { border-bottom: 1px solid var(--line); padding-bottom: 14px; margin-bottom: 12px; }
+.gm-pdtabs { padding-top: 10px; }
+
+/* the list beside an inspector keeps its own surface and does not run underneath it */
+.gm-view .gm-scroll { background: transparent; }
+.gm-term-pane .xterm-viewport { background-color: transparent !important; }
