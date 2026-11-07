@@ -9,11 +9,12 @@ import { ago } from './util'
 import type { RunnersSettings } from '../shared/runners'
 
 /** A Summa-UI switch with its visible label and an optional hint; the fieldset disables it for pointer and keyboard alike. */
-function SwitchRow({ label, hint, checked, onChange, disabled }: { label: string; hint?: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+function SwitchRow({ label, hint, notice, checked, onChange, disabled }: { label: string; hint?: string; /** A state the user must see (unlike a hint): shown beside the label. */ notice?: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   const row = (
     <fieldset className="gm-switch-row" disabled={disabled}>
       <Switch checked={checked} onChange={onChange} label={label} />
       <span>{label}</span>
+      {notice && <span className="gm-warn">{notice}</span>}
     </fieldset>
   )
   // A hint is supplementary: one short sentence on hover or focus, never printed under the control.
@@ -55,8 +56,7 @@ export function SettingsView({ model, actions }: { model: Model; actions: Action
   }
   const startupHint = !startup ? undefined
     : !startup.supported ? startup.reason ?? undefined
-      : startup.disabledByWindows && !s.launchAtStartup ? 'Turned off in Windows Startup apps.'
-        : 'Opens GitManager at sign-in.'
+      : 'Opens GitManager at sign-in.'
   /** Adds a removed repository back (a manual add also lifts the removal). If the folder is gone, only the removal is forgotten. */
   const restore = async (key: string) => {
     const i = model.data.ignored.find(x => x.key === key)
@@ -87,7 +87,7 @@ export function SettingsView({ model, actions }: { model: Model; actions: Action
           </div>
           {windows && (
             <>
-              <SwitchRow label="Launch at Windows startup" hint={startupHint} checked={s.launchAtStartup} disabled={!startup?.supported}
+              <SwitchRow label="Launch at Windows startup" hint={startupHint} notice={startup?.disabledByWindows && !s.launchAtStartup ? 'Turned off in Windows Startup apps' : undefined} checked={s.launchAtStartup} disabled={!startup?.supported}
                 onChange={v => set('launchAtStartup', v)} />
               <SwitchRow label="Start minimized" hint="Waits in the notification area at Windows startup."
                 checked={s.startMinimized} disabled={!startup?.supported || !s.launchAtStartup} onChange={v => set('startMinimized', v)} />
