@@ -9,6 +9,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { _electron } from 'playwright'
+import { readFileSync } from 'node:fs'
+import { checkVersionInfo, readVersionInfo } from './release/check.mjs'
 import { titlebarProblems, titlebarReport } from './e2e/window.mjs'
 
 const installer = resolve(process.argv[2] ?? '')
@@ -96,11 +98,19 @@ async function main() {
   check(shortcuts.every(s => s.toLowerCase().startsWith(exe.toLowerCase())), 'Install: desktop and Start menu shortcuts start the installed GitManager.exe', shortcuts.join(' ; '))
   execFileSync(process.execPath, [join(import.meta.dirname, 'verify-branding.mjs'), '--exe', exe], { stdio: 'inherit' })
   log(true, 'Install: the installed executable carries the GitManager icon')
+  // The version the repository declares is the version installed: executable resource, Add/Remove Programs entry, and (below) what the app reports.
+  const wanted = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')).version
+  const stamped = checkVersionInfo('installed GitManager.exe', readVersionInfo(readFileSync(exe)), wanted)
+  check(!stamped.length, `Install: the installed executable is stamped ${wanted}`, stamped.join('; '))
+  const arp = execFileSync('powershell.exe', ['-NoProfile', '-Command', "Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' | Where-Object { $_.DisplayName -like 'GitManager*' } | ForEach-Object { $_.DisplayVersion }"], { encoding: 'utf8' }).trim()
+  check(arp === wanted, `Install: Add or remove programs lists GitManager ${wanted}`, arp || 'no entry')
 
   // 2. Start the installed app: packaged, title bar overlay on the panel colour, discovery finds the repository
   await launch()
   const facts = await app.evaluate(({ app }) => ({ packaged: app.isPackaged, execPath: process.execPath }))
   check(facts.packaged && facts.execPath.toLowerCase() === exe.toLowerCase(), 'Start: the installed, packaged GitManager.exe runs', facts.execPath)
+  const reported = await app.evaluate(({ app }) => app.getVersion())
+  check(reported === wanted, `Start: the application reports version ${wanted}`, reported)
   await page.locator('.gm-repo-list .nav-item', { hasText: 'demo' }).click({ timeout: 30000 })
   await page.getByRole('heading', { name: 'demo' }).waitFor()
   await setBounds({ x: 40, y: 30, width: 960, height: 660 })

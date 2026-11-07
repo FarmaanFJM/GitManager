@@ -1,7 +1,7 @@
 {
   "name": "gitmanager",
   "productName": "GitManager",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Desktop workspace for managing local Git repositories and launching development services. Built with Summa-UI.",
   "license": "MIT",
   "author": "FarmaanFJM",
@@ -28,7 +28,8 @@
     "verify:branding": "node scripts/verify-branding.mjs",
     "test:e2e:runners": "npm run build && node scripts/e2e-runners.mjs",
     "test:e2e:menus": "npm run build && node scripts/e2e-menus.mjs",
-    "test:e2e:devtools": "npm run build && node scripts/e2e-devtools.mjs"
+    "test:e2e:devtools": "npm run build && node scripts/e2e-devtools.mjs",
+    "verify:release": "node scripts/release/check.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
