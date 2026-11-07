@@ -63,6 +63,27 @@ try {
   check(dockText.replace(/\s+/g, '').includes(repo.replace(/\s+/g, '') + 'main') || (dockText.includes(repo) && dockText.includes('MARK42')), 'terminal starts in the repository root and runs git', dockText.split('\n').filter(Boolean).slice(0, 3).join(' | '))
   await shot('02-terminal')
 
+  // --- copy output: each command with what it printed, read back from the real clipboard
+  await page.keyboard.type('echo ALPHA-ONE\n')
+  await page.waitForFunction(() => (document.querySelector('.gm-dock .xterm-rows')?.textContent.match(/ALPHA-ONE/g) || []).length >= 2, null, { timeout: 15000 })
+  await page.keyboard.type('printf "beta\\ntwo\\n"\n')
+  await page.waitForFunction(() => document.querySelector('.gm-dock .xterm-rows')?.textContent.includes('two'), null, { timeout: 15000 })
+  await page.waitForTimeout(400)
+  const clip = () => app.evaluate(({ clipboard }) => clipboard.readText())
+  await app.evaluate(({ clipboard }) => clipboard.writeText(''))
+  await page.getByRole('button', { name: 'Copy output' }).click()
+  await page.getByRole('menuitem', { name: 'Last command and output' }).click()
+  await page.waitForFunction(async () => true)
+  let last = ''; for (let i = 0; i < 20 && !last; i++) { last = await clip(); if (!last) await page.waitForTimeout(150) }
+  check(/printf "beta/.test(last) && /^beta$/m.test(last) && /^two$/m.test(last) && !/ALPHA-ONE/.test(last) && !/echo ALPHA/.test(last) && !/two\n.*#\s*$/.test(last), 'Copy last command: the command line and only its output', JSON.stringify(last))
+  await app.evaluate(({ clipboard }) => clipboard.writeText(''))
+  await page.getByRole('button', { name: 'Copy output' }).click()
+  await page.getByRole('menuitem', { name: 'All commands and outputs' }).click()
+  let all = ''; for (let i = 0; i < 20 && !all; i++) { all = await clip(); if (!all) await page.waitForTimeout(150) }
+  const iEcho = all.indexOf('echo ALPHA-ONE'), iAlpha = all.indexOf('\nALPHA-ONE'), iPrintf = all.indexOf('printf "beta')
+  check(iEcho >= 0 && iAlpha > iEcho && iPrintf > iAlpha && /^beta$/m.test(all) && /^two$/m.test(all) && !/#\s*$/.test(all), 'Copy all: each command followed by its own output, in order', JSON.stringify(all))
+  await shot('02b-copied')
+
   // --- processes: find the outside process on the port, read its live environment, stop it with confirmation
   await page.getByRole('button', { name: 'Processes' }).click()
   await page.waitForSelector(`text=${port}`, { timeout: 20000 })

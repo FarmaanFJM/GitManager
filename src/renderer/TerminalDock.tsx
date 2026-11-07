@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { Button, Dropdown, Icon, IconButton } from '../../third_party/summa-ui/src/ui'
-import { useConfirm } from '../../third_party/summa-ui/src/presets'
+import { Button, Dropdown, Icon, IconButton, MenuButton, useCopy } from '../../third_party/summa-ui/src/ui'
+import { useConfirm, useToast } from '../../third_party/summa-ui/src/presets'
+import { collectBlocks, formatBlocks, recordCommand, wholeBuffer, type Recorded } from './terminalBlocks'
 import type { ShellOption, TerminalInfo, TerminalNote, TerminalOpenRequest, TerminalTarget } from '../shared/terminal'
 import { api } from './api'
 
@@ -41,6 +42,9 @@ export function TerminalDock({ register, target, onNote }: {
   const [shellId, setShellId] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const confirm = useConfirm()
+  const toast = useToast()
+  const clipboard = useCopy()
+  const records = useRef(new Map<string, Recorded[]>())
   const host = useRef<HTMLDivElement>(null)
   const live = useRef(new Map<string, Live>())
   const activeRef = useRef<string | null>(null)
@@ -68,7 +72,7 @@ export function TerminalDock({ register, target, onNote }: {
         if (!info) return s
         return s.some(x => x.id === info.id) ? s.map(x => (x.id === info.id ? info : x)) : [...s, info]
       })
-      if (closed) { const l = live.current.get(closed); if (l) { l.term.dispose(); l.el.remove(); live.current.delete(closed) } setActive(a => (a === closed ? null : a)) }
+      if (closed) { records.current.delete(closed); const l = live.current.get(closed); if (l) { l.term.dispose(); l.el.remove(); live.current.delete(closed) } setActive(a => (a === closed ? null : a)) }
     })
     const offData = api.on('terminal-data', ({ id, data }) => { live.current.get(id)?.term.write(data) })
     return () => { offList(); offData() }
@@ -91,7 +95,11 @@ export function TerminalDock({ register, target, onNote }: {
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(el)
-    term.onData(d => { void api.terminalWrite(info.id, d) })
+    term.onData(d => {
+      // Enter marks the start of an output: remember which line the command is on (the text is read back from the buffer when copying).
+      if (d === '\r') { const r = recordCommand(term); const list = records.current.get(info.id) ?? []; list.push(r); records.current.set(info.id, list.slice(-500)) }
+      void api.terminalWrite(info.id, d)
+    })
     term.onResize(({ cols, rows }) => { void api.terminalResize(info.id, cols, rows) })
     // Copy with Ctrl+Shift+C / Ctrl+Insert and paste with Ctrl+Shift+V, leaving Ctrl+C for the shell (interrupt).
     term.attachCustomKeyEventHandler(e => {
@@ -128,6 +136,16 @@ export function TerminalDock({ register, target, onNote }: {
       const yes = await confirm({ title: 'Close terminal?', description: r.value.reason, confirmLabel: 'Close terminal', destructive: true })
       if (yes) await api.terminalClose(id, true)
     }
+  }
+
+  /** Copies what the active terminal showed: the last command with its output, every command with its output, or the whole buffer. */
+  const copyOutput = async (what: 'last' | 'all' | 'everything') => {
+    const l = active ? live.current.get(active) : null
+    if (!l) return
+    const blocks = collectBlocks(l.term, records.current.get(active!) ?? [])
+    const text = what === 'everything' ? wholeBuffer(l.term) : formatBlocks(what === 'last' ? blocks.slice(-1) : blocks)
+    if (!text.trim()) { toast.info(what === 'everything' ? 'Nothing to copy' : 'No commands yet'); return }
+    if (await clipboard.copy(text)) toast.success('Copied'); else toast.error('Could not copy')
   }
 
   const newTab = () => {
@@ -172,6 +190,12 @@ export function TerminalDock({ register, target, onNote }: {
           ))}
         </div>
         <span className="grow" />
+        {current && <MenuButton icon="copy" size="sm" label="Copy output" items={[
+          { label: 'Last command and output', icon: 'copy', onSelect: () => void copyOutput('last') },
+          { label: 'All commands and outputs', icon: 'copy', onSelect: () => void copyOutput('all') },
+          { type: 'sep' },
+          { label: 'Everything in the terminal', icon: 'copy', onSelect: () => void copyOutput('everything') },
+        ]} />}
         {options.length > 0 && <Dropdown label="Shell" quiet width={220} value={shellId || null} options={options} onChange={setShellId} />}
         <IconButton icon="plus" size="sm" label="New tab" onClick={newTab} />
         <IconButton icon="chevron-down" size="sm" label="Hide terminal" onClick={() => setVisible(false)} />
