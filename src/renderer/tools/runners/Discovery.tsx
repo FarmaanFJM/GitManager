@@ -84,7 +84,6 @@ export function DiscoveryTab({ st, toast }: { st: RunnersState; toast: ToastApi 
           </div>
         </div>
         <h3 className="gm-section-h">Folders to inspect</h3>
-        <p className="gm-hint">Common locations are always checked (for example /opt, /home, C:\ and your profile folder). Add a folder for runners installed elsewhere.</p>
         {s.roots.length > 0 && (
           <ul className="gm-roots">
             {s.roots.map(r => (
@@ -102,7 +101,6 @@ export function DiscoveryTab({ st, toast }: { st: RunnersState; toast: ToastApi 
           <Button variant="secondary" icon="plus" onClick={() => void addRoot()} disabled={!rootPath.trim()}>Add folder</Button>
         </div>
         <h3 className="gm-section-h">GitHub repositories and organizations to read</h3>
-        <p className="gm-hint">Repositories registered in GitManager with a github.com remote, and scopes found in local installations, are read without being listed here. Organization runners need organization administration.</p>
         {(s.repos.length > 0 || s.orgs.length > 0) && (
           <ul className="gm-roots">
             {s.repos.map(r => <li key={`r:${r}`} className="gm-root-row"><span className="gm-mono truncate">{r}</span><span className="faint">repository</span><span className="grow" /><IconButton icon="x" size="sm" label={`Forget ${r}`} onClick={() => void save({ repos: s.repos.filter(x => x !== r) })} /></li>)}
@@ -118,7 +116,7 @@ export function DiscoveryTab({ st, toast }: { st: RunnersState; toast: ToastApi 
           <Button variant="secondary" icon="plus" onClick={() => void addOrg()} disabled={!org.trim()}>Add organization</Button>
         </div>
         <h3 className="gm-section-h">Remote machines over SSH</h3>
-        <p className="gm-hint">Hosts from your SSH configuration (~/.ssh/config). An allowed host is inspected during scans and can receive installations; commands run through ssh with key-based authentication only, and GitManager never enables SSH, opens ports or changes firewall rules.</p>
+        <p className="gm-hint">Hosts from ~/.ssh/config. An allowed host is inspected during scans and can receive installations.</p>
         {ssh === null ? <p className="gm-section-empty muted">Reading SSH configuration</p> : ssh.length === 0 ? <p className="gm-section-empty muted">No host aliases in ~/.ssh/config.</p> : (
           <ul className="gm-roots">
             {ssh.map(h => (

@@ -145,7 +145,8 @@ describe('path protection', () => {
     expect(pm.value.linkedWorktrees.map(w => ({ ...w, path: normalizePath(w.path) }))).toMatchObject([{ path: normalizePath(wt), exists: true, inside: false }]); expect(pm.value.blockers.join(' ')).toMatch(/linked worktree of this repository exists outside it/)
     expect(await b.deleteRepoFolder(mainRepo.id, { confirmPath: main })).toMatchObject({ ok: false, error: { code: 'REFUSED' } }); expect(existsSync(join(main, '.git'))).toBe(true)
     const pw = await b.deletionPreview(wtRepo.id); if (!pw.ok) throw new Error()
-    expect(pw.value.worktreeOf).toBe(main); expect(pw.value.blockers).toEqual([]); expect(pw.value.warnings.join(' ')).toMatch(/linked worktree of /)
+    expect(normalizePath(pw.value.worktreeOf ?? '')).toBe(normalizePath(main)); // Git reports forward slashes on Windows
+    expect(pw.value.blockers).toEqual([]); expect(pw.value.warnings.join(' ')).toMatch(/linked worktree of /)
     const del = await b.deleteRepoFolder(wtRepo.id, { confirmPath: wt })
     expect(del).toMatchObject({ ok: true, value: { deleted: true } }); expect(del.ok && del.value.notes.join(' ')).toMatch(/Pruned the stale worktree record/)
     expect(existsSync(wt)).toBe(false); expect(g(main, 'worktree', 'list', '--porcelain')).not.toMatch(/main-wt/)

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button, Dropdown, IconButton, Switch } from '../../third_party/summa-ui/src/ui'
+import { Button, Dropdown, IconButton, Switch, Tooltip, CopyButton } from '../../third_party/summa-ui/src/ui'
 import type { OpError, Settings, StartupState } from '../shared/types'
 import { api } from './api'
 import type { Actions, Model } from './App'
@@ -9,16 +9,16 @@ import { ago } from './util'
 import type { RunnersSettings } from '../shared/runners'
 
 /** A Summa-UI switch with its visible label and an optional hint; the fieldset disables it for pointer and keyboard alike. */
-function SwitchRow({ label, hint, checked, onChange, disabled }: { label: string; hint?: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
-  return (
-    <div className="gm-switch-field">
-      <fieldset className="gm-switch-row" disabled={disabled}>
-        <Switch checked={checked} onChange={onChange} label={label} />
-        <span>{label}</span>
-      </fieldset>
-      {hint && <p className="gm-hint">{hint}</p>}
-    </div>
+function SwitchRow({ label, hint, notice, checked, onChange, disabled }: { label: string; hint?: string; /** A state the user must see (unlike a hint): shown beside the label. */ notice?: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  const row = (
+    <fieldset className="gm-switch-row" disabled={disabled}>
+      <Switch checked={checked} onChange={onChange} label={label} />
+      <span>{label}</span>
+      {notice && <span className="gm-warn">{notice}</span>}
+    </fieldset>
   )
+  // A hint is supplementary: one short sentence on hover or focus, never printed under the control.
+  return <div className="gm-switch-field">{hint ? <Tooltip content={hint} side="bottom">{row}</Tooltip> : row}</div>
 }
 
 export function SettingsView({ model, actions }: { model: Model; actions: Actions }) {
@@ -56,8 +56,7 @@ export function SettingsView({ model, actions }: { model: Model; actions: Action
   }
   const startupHint = !startup ? undefined
     : !startup.supported ? startup.reason ?? undefined
-      : startup.disabledByWindows && !s.launchAtStartup ? 'Turned off in Windows (Task Manager, Startup apps). Switching it on here turns it on again.'
-        : 'Opens GitManager when you sign in to Windows. Nothing runs in your repositories.'
+      : 'Opens GitManager at sign-in.'
   /** Adds a removed repository back (a manual add also lifts the removal). If the folder is gone, only the removal is forgotten. */
   const restore = async (key: string) => {
     const i = model.data.ignored.find(x => x.key === key)
@@ -88,18 +87,18 @@ export function SettingsView({ model, actions }: { model: Model; actions: Action
           </div>
           {windows && (
             <>
-              <SwitchRow label="Launch at Windows startup" hint={startupHint} checked={s.launchAtStartup} disabled={!startup?.supported}
+              <SwitchRow label="Launch at Windows startup" hint={startupHint} notice={startup?.disabledByWindows && !s.launchAtStartup ? 'Turned off in Windows Startup apps' : undefined} checked={s.launchAtStartup} disabled={!startup?.supported}
                 onChange={v => set('launchAtStartup', v)} />
-              <SwitchRow label="Start minimized" hint="Only when GitManager starts with Windows: it waits in the notification area instead of opening a window."
+              <SwitchRow label="Start minimized" hint="Waits in the notification area at Windows startup."
                 checked={s.startMinimized} disabled={!startup?.supported || !s.launchAtStartup} onChange={v => set('startMinimized', v)} />
             </>
           )}
           {model.platform.os !== 'mac' && (
-            <SwitchRow label="Minimize to system tray" hint="Minimizing hides the window in the notification area. Click the GitManager icon there to open it again."
+            <SwitchRow label="Minimize to system tray" hint="Minimizing hides the window in the notification area."
               checked={s.minimizeToTray} onChange={v => set('minimizeToTray', v)} />
           )}
           <div className="gm-grid">
-            <Field label="Editor command" hint={model.platform.os === 'windows' ? 'Runs with the repository folder, for example code or cursor. WSL repositories open from inside WSL.' : 'Runs with the repository folder, for example code.'}>
+            <Field label="Editor command">
               {id => <input id={id} className="input gm-mono" value={s.editor} placeholder="code" onChange={e => set('editor', e.target.value)} spellCheck={false} />}
             </Field>
             <Field label="Chrome location">
@@ -115,7 +114,7 @@ export function SettingsView({ model, actions }: { model: Model; actions: Action
             <h2 className="gm-section-h">Automatic discovery</h2>
           </div>
           <SwitchRow label="Find repositories automatically at startup" checked={s.autoDiscover} onChange={v => set('autoDiscover', v)}
-            hint={`${windows ? 'Looks in common development folders such as C:\\Projects and source\\repos, and in the home folders of your WSL distributions.' : 'Looks in common development folders in your home folder.'} It only adds repositories; it never runs anything in them.`} />
+            hint="Only adds repositories; runs nothing in them." />
           <div className="row">
             <Button onClick={() => actions.rescan('common')} disabled={!!disc?.running} icon="refresh">Rescan now</Button>
             <Button variant="ghost" onClick={() => actions.rescan('deep')} disabled={!!disc?.running}>{deepLabel}</Button>
@@ -130,16 +129,15 @@ export function SettingsView({ model, actions }: { model: Model; actions: Action
             <Button variant="ghost" onClick={() => actions.setView({ kind: 'tools', tool: 'runners' })}>Open Runners</Button>
           </div>
           <SwitchRow label="Find GitHub Actions runners at startup" checked={runners?.autoDiscover ?? true} disabled={!runners} onChange={v => void saveRunners({ autoDiscover: v })}
-            hint={`${windows ? 'Looks for runner installations and services on this computer and in your WSL distributions.' : 'Looks for runner installations and services on this computer.'} It only reads; nothing is started, registered or changed.`} />
+            hint="Only reads; nothing is started or changed." />
           <SwitchRow label="Also read GitHub at startup" checked={runners?.githubAtStartup ?? false} disabled={!runners} onChange={v => void saveRunners({ githubAtStartup: v })}
-            hint="Asks GitHub for the runners of your repositories through the GitHub CLI sign-in at every launch. Off keeps startup offline; the Runners tool reads GitHub when you scan." />
+            hint="Off keeps startup offline." />
 
           {model.data.ignored.length > 0 && (
             <>
               <div className="gm-form-head">
                 <h2 className="gm-section-h">Removed repositories</h2>
               </div>
-              <p className="gm-hint" style={{ marginTop: -8 }}>Discovery does not add these again.</p>
               <ul className="gm-roots">
                 {model.data.ignored.map(i => (
                   <li key={i.key} className="gm-ignored-row">
@@ -158,7 +156,7 @@ export function SettingsView({ model, actions }: { model: Model; actions: Action
             <Button variant="ghost" icon="plus" onClick={actions.findReposDialog}>Add folder</Button>
           </div>
           {model.data.roots.length === 0
-            ? <p className="muted gm-section-empty">GitManager can look for repositories inside folders you choose.</p>
+            ? <p className="muted gm-section-empty">No folders</p>
             : (
               <ul className="gm-roots">
                 {model.data.roots.map(r => (
@@ -172,7 +170,7 @@ export function SettingsView({ model, actions }: { model: Model; actions: Action
               </ul>
             )}
 
-          <p className="gm-data-path faint">Settings and profiles are stored on this computer in <span className="gm-mono">{model.platform.dataPath}</span>. GitManager {model.platform.version}.</p>
+          <p className="gm-data-path faint">GitManager {model.platform.version} <CopyButton value={model.platform.dataPath} label="Copy data path" /></p>
           <button type="submit" hidden />
         </form>
       </div>

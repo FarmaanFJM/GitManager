@@ -27,7 +27,8 @@
     "package:dir": "npm run build && electron-builder --dir",
     "verify:branding": "node scripts/verify-branding.mjs",
     "test:e2e:runners": "npm run build && node scripts/e2e-runners.mjs",
-    "test:e2e:menus": "npm run build && node scripts/e2e-menus.mjs"
+    "test:e2e:menus": "npm run build && node scripts/e2e-menus.mjs",
+    "test:e2e:devtools": "npm run build && node scripts/e2e-devtools.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
@@ -55,7 +56,8 @@
       "package.json",
       "assets/brand/GitManager-Summa.ico",
       "assets/brand/GitManager-Summa-256.png",
-      "assets/brand/GitManager-Summa-32.png"
+      "assets/brand/GitManager-Summa-32.png",
+      "node_modules/node-pty/prebuilds/**/*"
     ],
     "asar": true,
     "win": {
@@ -102,6 +104,14 @@
       ],
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.png"
-    }
+    },
+    "asarUnpack": [
+      "node_modules/node-pty/**"
+    ]
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "node-pty": "1.1.0"
   }
 }

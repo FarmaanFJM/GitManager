@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { readdirSync, readFileSync } from 'node:fs'
 import { StringDecoder } from 'node:string_decoder'
-import type { LogBatch, LogLine, ServiceStatus } from '../shared/types.js'
+import type { LogBatch, LogLine, Runtime, ServiceStatus } from '../shared/types.js'
 import { decodeOutput, hostOs, programSpec, run, type ExecSpec, type HostOs } from './exec.js'
 import type { Launch } from './profiles.js'
 import { describeReadiness, probe } from './readiness.js'
@@ -68,6 +68,7 @@ type Entry = {
   pending: LogLine[]
   flushTimer: NodeJS.Timeout | null
   stopRequested: boolean
+  spawnEnv?: Record<string, string>
   exited: Promise<void>
 }
 
@@ -176,6 +177,8 @@ export class ServiceManager extends EventEmitter {
       return e.status
     }
     e.child = child
+    // What the process actually received (host environment plus the service's own variables). Kept for the read-only environment view.
+    if (launch.runtime.kind === 'native') e.spawnEnv = Object.fromEntries(Object.entries(spec.env ?? process.env).filter((kv): kv is [string, string] => typeof kv[1] === 'string'))
     this.set(e, { pid: child.pid ?? null, startedAt: new Date().toISOString() })
 
     const attach = (stream: NodeJS.ReadableStream, kind: 'out' | 'err') => {
@@ -284,6 +287,58 @@ export class ServiceManager extends EventEmitter {
     if (!e) return undefined
     await this.stop(key)
     return this.start(e.launch)
+  }
+
+  /**
+   * Waits until a service has left `starting`/`stopping`: ready, running, failed or stopped. For a service with no readiness
+   * check, `running` only means the process is alive, so it must stay alive for `aliveMs` before it counts as started.
+   * Never reports success because a process was merely spawned.
+   */
+  async settled(key: string, opts: { timeoutMs?: number; aliveMs?: number } = {}): Promise<ServiceStatus | undefined> {
+    const e = this.entries.get(key)
+    if (!e) return undefined
+    const deadline = Date.now() + (opts.timeoutMs ?? (e.launch.readyTimeout + 15) * 1000)
+    const aliveMs = e.launch.readiness.type === 'none' ? (opts.aliveMs ?? 1500) : 0
+    let aliveSince = 0
+    while (Date.now() < deadline) {
+      const cur = this.entries.get(key) ?? e
+      const st = cur.status.state
+      if (st === 'failed' || st === 'stopped') return cur.status
+      if (st === 'ready') return cur.status
+      if (st === 'running') {
+        aliveSince ||= Date.now()
+        if (Date.now() - aliveSince >= aliveMs) return cur.status
+      } else aliveSince = 0
+      await new Promise(r => setTimeout(r, 50))
+    }
+    return (this.entries.get(key) ?? e).status
+  }
+
+  /** Stop gracefully, start again with the same launch (command, directory, environment) and report only what is verified. */
+  async restartVerified(key: string, opts: { timeoutMs?: number; aliveMs?: number } = {}): Promise<ServiceStatus | undefined> {
+    const started = await this.restart(key)
+    if (!started) return undefined
+    return this.settled(key, opts)
+  }
+
+  /** Live processes GitManager started: the native child pid, or for WSL the process-group leader inside the distribution (never the wsl.exe pid). */
+  managed(): { serviceKey: string; repoId: string; runtime: Runtime; pid: number; env: Record<string, string> }[] {
+    const out: { serviceKey: string; repoId: string; runtime: Runtime; pid: number; env: Record<string, string> }[] = []
+    for (const e of this.entries.values()) {
+      if (!this.isAlive(e.launch.key)) continue
+      const wsl = e.launch.runtime.kind === 'wsl'
+      const pid = wsl ? e.pgid : e.child?.pid ?? null
+      if (!pid) continue
+      out.push({ serviceKey: e.launch.key, repoId: e.launch.repoId, runtime: e.launch.runtime, pid, env: e.spawnEnv ?? { ...e.launch.env } })
+    }
+    return out
+  }
+
+  /** The environment a service was last launched with, exactly as passed to the process (the base is this app's environment on the host; inside WSL only the service's own variables are known). */
+  launchEnv(key: string): { env: Record<string, string>; base: 'host' | 'service-only'; startedAt: string | null } | undefined {
+    const e = this.entries.get(key)
+    if (!e) return undefined
+    return { env: e.spawnEnv ?? { ...e.launch.env }, base: e.spawnEnv ? 'host' : 'service-only', startedAt: e.status.startedAt }
   }
 
   async stopAll(filter: (s: ServiceStatus) => boolean = () => true) {

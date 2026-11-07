@@ -2,8 +2,12 @@
 // reference implementation (both verified by npm run verify:summa-ui). GitManager's own layout comes last.
 import '../../third_party/summa-ui/guidance/css/tokens.css'
 import '../../third_party/summa-ui/src/styles/base.css'
+import '../../third_party/summa-ui/src/styles/top.css'
 import '../../third_party/summa-ui/guidance/css/presets.css'
 import './app.css'
+import './css/processes.css'
+import './css/worktrees.css'
+import './css/runners-actions.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ConfirmProvider, ToastProvider } from '../../third_party/summa-ui/src/presets'

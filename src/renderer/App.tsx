@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AppShell, useHotkey } from '../../third_party/summa-ui/src/ui'
+import { AppShell, InlineAlert, useHotkey } from '../../third_party/summa-ui/src/ui'
 import type { AppState, Distros } from '../shared/api'
 import type { DiscoveryStatus, LogLine, OpError, Platform, Profile, RemoteCheck, Repo, RepoStatus, Result, ServiceStatus } from '../shared/types'
 import { api } from './api'
@@ -10,10 +10,17 @@ import { Sidebar } from './Sidebar'
 import { StorageView } from './Storage'
 import { ToolsView, type ToolId } from './tools/Tools'
 import { Workspace, WelcomeEmpty } from './Workspace'
+import { OverviewView } from './Overview'
+import { SyncDialog } from './SyncDialog'
+import { useToast } from '../../third_party/summa-ui/src/presets'
+import { ProcessesView } from './Processes'
 import { isTyping } from './util'
+import { TerminalDock, type DockApi } from './TerminalDock'
+import type { TerminalNote, TerminalTarget } from '../shared/terminal'
 
 export type RepoView = { status?: RepoStatus; error?: OpError; loading: boolean }
-export type View = { kind: 'repo' } | { kind: 'settings' } | { kind: 'storage' } | { kind: 'tools'; tool: ToolId | null } | { kind: 'profile'; profile: Profile; isNew: boolean }
+export type RepoTab = 'overview' | 'branches' | 'worktrees' | 'history'
+export type View = { kind: 'overview' } | { kind: 'processes'; focus?: { port?: number; key?: string } } | { kind: 'repo' } | { kind: 'settings' } | { kind: 'storage' } | { kind: 'tools'; tool: ToolId | null } | { kind: 'profile'; profile: Profile; isNew: boolean }
 
 /** Everything the screens need, loaded from the main process and kept current by its events. */
 export type Model = {
@@ -39,6 +46,17 @@ export type Actions = {
   addRepoDialog: () => void
   findReposDialog: () => void
   rescan: (scope: 'common' | 'deep') => void
+  /** Opens the integrated terminal for a repository, a worktree folder or a runner, in the right shell and folder. */
+  openTerminal: (target: TerminalTarget, shellId?: string) => void
+  /** Selects a repository and shows one of its tabs. */
+  openRepo: (repoId: string, tab?: RepoTab) => void
+  /** Services that a pull found may need a restart, by repository. Cleared when the user restarts or dismisses. */
+  restartHints: Record<string, import('../shared/gitflow').AffectedSummary>
+  setRestartHint: (repoId: string, hint: import('../shared/gitflow').AffectedSummary | null) => void
+  /** A short result under the app (Synced, Fetched, ...): one toast. */
+  tab: { repoId: string; tab: RepoTab } | null
+  /** Opens Sync with Remote for a repository. */
+  sync: (repoId: string) => void
 }
 
 export function App() {
@@ -49,7 +67,13 @@ export function App() {
   const [remotes, setRemotes] = useState<Record<string, RemoteCheck | null>>({})
   const [fetchedAt, setFetchedAt] = useState<Record<string, number>>({})
   const [services, setServices] = useState<Record<string, ServiceStatus>>({})
-  const [view, setView] = useState<View>({ kind: 'repo' })
+  const [view, setView] = useState<View>({ kind: 'overview' })
+  const [restartHints, setRestartHints] = useState<Record<string, import('../shared/gitflow').AffectedSummary>>({})
+  const [tab, setTab] = useState<{ repoId: string; tab: RepoTab } | null>(null)
+  const dock = useRef<DockApi | null>(null)
+  const [noteText, setNoteText] = useState<string | null>(null)
+  const [syncId, setSyncId] = useState<string | null>(null)
+  const toastApi = useToast()
   const [dialog, setDialog] = useState<'add' | 'find' | null>(null)
   const [discovery, setDiscovery] = useState<DiscoveryStatus | null>(null)
   const logStore = useRef(new Map<string, LogLine[]>())
@@ -119,9 +143,10 @@ export function App() {
     return () => window.removeEventListener('focus', onFocus)
   }, [selectedId, refresh])
 
-  const select = useCallback((repoId: string) => {
+  const select = useCallback((repoId: string, wanted?: RepoTab) => {
     setData(d => (d ? { ...d, ui: { ...d.ui, selectedRepoId: repoId } } : d))
     setView({ kind: 'repo' })
+    setTab(wanted ? { repoId, tab: wanted } : null)
     void api.selectRepo(repoId)
     void refresh(repoId, { remote: true })
   }, [refresh])
@@ -137,6 +162,7 @@ export function App() {
   }, [])
 
   useHotkey('mod+r', e => { e.preventDefault(); if (selectedId) void refresh(selectedId, { remote: true }) }, [selectedId])
+  useHotkey('mod+`', e => { e.preventDefault(); dock.current?.toggle() }, [])
   useHotkey('f5', e => { e.preventDefault(); if (selectedId) void refresh(selectedId, { remote: true }) }, [selectedId])
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -156,12 +182,17 @@ export function App() {
   }) : null, [platform, data, distros, statuses, remotes, fetchedAt, services, logVersion, discovery])
 
   const actions: Actions = useMemo(() => ({
-    reload, refresh, select, setView, loadLogs,
+    reload, refresh, select: (id: string) => select(id), setView, loadLogs,
+    openRepo: (id: string, t?: RepoTab) => select(id, t),
+    openTerminal: (target: TerminalTarget, shellId?: string) => { void dock.current?.open({ target, shellId }) },
+    restartHints, tab,
+    sync: (id: string) => setSyncId(id),
+    setRestartHint: (repoId: string, hint: import('../shared/gitflow').AffectedSummary | null) => setRestartHints(m => { const n = { ...m }; if (hint && hint.needsAttention) n[repoId] = hint; else delete n[repoId]; return n }),
     markFetched: (id: string) => setFetchedAt(m => ({ ...m, [id]: Date.now() })),
     addRepoDialog: () => setDialog('add'),
     findReposDialog: () => setDialog('find'),
     rescan: (scope: 'common' | 'deep') => { void api.rescan(scope).then(r => { if (r.ok) setDiscovery(r.value) }) },
-  }), [reload, refresh, select, loadLogs])
+  }), [reload, refresh, select, loadLogs, restartHints, tab])
 
   if (!model) return <AppShell sidebar={<Sidebar.Skeleton />}><div /></AppShell>
 
@@ -174,12 +205,24 @@ export function App() {
 
   return (
     <AppShell sidebar={<Sidebar model={model} actions={actions} view={view} />}>
-      {view.kind === 'settings' ? <SettingsView model={model} actions={actions} />
+      <div className="gm-main">
+      <div className="gm-view">
+      {view.kind === 'overview' ? <OverviewView model={model} actions={actions} />
+        : view.kind === 'processes' ? <ProcessesView model={model} actions={actions} focus={view.focus} />
+        : view.kind === 'settings' ? <SettingsView model={model} actions={actions} />
         : view.kind === 'storage' ? <StorageView />
         : view.kind === 'tools' ? <ToolsView tool={view.tool} model={model} actions={actions} />
         : view.kind === 'profile' && repo ? <ProfileEditor key={view.profile.id} model={model} actions={actions} repo={repo} initial={view.profile} isNew={view.isNew} />
           : repo ? <Workspace key={repo.id} model={model} actions={actions} repo={repo} />
             : <WelcomeEmpty hasRepos={model.data.repos.length > 0} searching={!!model.discovery?.running} onAdd={actions.addRepoDialog} />}
+      </div>
+      <TerminalDock register={d => { dock.current = d }} target={repo ? { type: 'repo', repoId: repo.id } : null} onNote={(n: TerminalNote[]) => setNoteText(n.map(x => x.message).join(' '))} />
+      {noteText && <InlineAlert tone="warn" action={{ label: 'Dismiss', onClick: () => setNoteText(null) }}>{noteText}</InlineAlert>}
+      </div>
+      {syncId && data?.repos.find(r => r.id === syncId) && (
+        <SyncDialog key={syncId} repo={data.repos.find(r => r.id === syncId)!} open onClose={() => setSyncId(null)}
+          onFinished={text => { const id = syncId; (text === 'Synced' ? toastApi.success : toastApi.warning)(text); void refresh(id, { remote: true }) }} />
+      )}
       <AddRepoDialog open={dialog === 'add'} model={model} onClose={() => setDialog(null)} onAdded={id => void onAdded([id])} />
       <FindReposDialog open={dialog === 'find'} model={model} onClose={() => setDialog(null)} onAdded={ids => void onAdded(ids)} onRootsChanged={reload} />
     </AppShell>

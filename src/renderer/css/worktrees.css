@@ -1,0 +1,29 @@
+/* worktrees and Sync with Remote: styles owned by their views; Summa-UI tokens only */
+.wt-panel { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.wt-toolbar { justify-content: flex-end; }
+.wt-list { padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 2px; }
+.wt-name { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+.wt-branch { font-weight: 500; flex: none; max-width: 40%; }
+.wt-path { min-width: 0; }
+.wt-status { font-size: var(--fs-sm); white-space: nowrap; }
+
+.wt-form, .wt-stack { display: flex; flex-direction: column; gap: var(--sp-3); }
+.wt-pre { margin: 0; white-space: pre-wrap; font: 400 var(--fs-sm)/1.5 var(--mono); }
+.wt-line { margin: 0; font-size: var(--fs-sm); }
+.wt-ack { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-3); }
+
+.wt-stale, .wt-failures, .wt-recover, .wt-plain, .wt-commits { list-style: none; margin: 0; padding: 0; }
+.wt-stale { display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow: auto; }
+.wt-srow { padding: 2px 0; }
+.wt-srow-main { display: flex; align-items: center; gap: var(--sp-3); min-height: 32px; cursor: pointer; min-width: 0; }
+.wt-srow[data-kind="protected"] .wt-srow-main { cursor: default; opacity: .75; }
+.wt-srow[data-kind="protected"] .checkbox { opacity: .5; }
+.wt-srow-note { margin-left: auto; font-size: var(--fs-sm); text-align: right; min-width: 0; }
+.wt-srow .top-details { margin-left: 28px; }
+.wt-commits { display: flex; flex-direction: column; gap: 2px; }
+.wt-commits li { display: flex; gap: var(--sp-3); min-width: 0; }
+.wt-recover-line, .wt-recover li { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-2); min-width: 0; overflow-wrap: anywhere; }
+.wt-failures { display: flex; flex-direction: column; gap: var(--sp-2); }
+.wt-failures li { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); }
+.wt-foot-note { margin-right: auto; align-self: center; font-size: var(--fs-sm); color: var(--text-2); }
+.wt-switch { margin-top: var(--sp-1); }

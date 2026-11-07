@@ -41,7 +41,7 @@ export function WorkflowsTab({ st, toast, onOpenRunner }: { st: RunnersState; to
       {error && <p className="gm-branch-problem" role="alert"><Icon name="circle-alert" size={15} />{error}</p>}
       {report && !loading && (
         <div className="gm-scroll scroll">
-          <p className="gm-section-empty gm-hint">{report.note} Workflow files are read only; GitManager never changes them.</p>
+          <p className="gm-section-empty gm-hint">{report.note}</p>
           {report.files.length === 0 && <p className="gm-section-empty muted">No workflow files in .github/workflows.</p>}
           {report.files.map(f => (
             <section key={f.path} className="gm-section" aria-label={f.path}>

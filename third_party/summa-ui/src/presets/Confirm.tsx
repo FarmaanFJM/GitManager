@@ -20,9 +20,13 @@ export type ConfirmOptions = {
   icon?: IconName
   /** Type-to-confirm: the button stays disabled until this exact text is typed. */
   requireText?: string
+  /** The exact thing acted on, shown in monospace and selectable: a path, a branch, a name. Optional. */
+  target?: string
+  /** What will happen, one short line each. Put destructive consequences here, never only in a tooltip. Optional. */
+  consequences?: string[]
 }
 
-export function ConfirmDialog({ open, onConfirm, onCancel, title, description, confirmLabel, cancelLabel = 'Cancel', destructive, icon, requireText }:
+export function ConfirmDialog({ open, onConfirm, onCancel, title, description, confirmLabel, cancelLabel = 'Cancel', destructive, icon, requireText, target, consequences }:
   ConfirmOptions & { open: boolean; onConfirm: () => void | Promise<void>; onCancel: () => void }) {
   const [typed, setTyped] = useState('')
   const [busy, setBusy] = useState(false)
@@ -51,6 +55,10 @@ export function ConfirmDialog({ open, onConfirm, onCancel, title, description, c
           </Button>
         </>
       }>
+      {target && <p className="top-confirm__target">{target}</p>}
+      {consequences && consequences.length > 0 && (
+        <ul className="top-confirm__list">{consequences.map(c => <li key={c}>{c}</li>)}</ul>
+      )}
       {requireText && (
         <div className="sm-dialog__field">
           <label className="sm-dialog__label" htmlFor="confirm-text">Type <strong>{requireText}</strong> to confirm</label>

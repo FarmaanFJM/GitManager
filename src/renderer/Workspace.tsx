@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button, DrawerToggle, Icon, IconButton, MenuButton, Tabs } from '../../third_party/summa-ui/src/ui'
+import { Button, DrawerToggle, Icon, IconButton, InlineAlert, MenuButton, Tabs, Tooltip } from '../../third_party/summa-ui/src/ui'
 import { useConfirm, useToast } from '../../third_party/summa-ui/src/presets'
 import type { Commit, Comparison, OpError, Repo, Result } from '../shared/types'
 import { api } from './api'
-import type { Actions, Model } from './App'
+import type { Actions, Model, RepoTab } from './App'
+import { WorktreesPanel } from './Worktrees'
+import { useRepoOps } from './repoOps'
+import { DeleteRepoDialog } from './DeleteRepoDialog'
+import { removeWords } from './deleteText'
 import { BranchPicker } from './BranchPicker'
 import { BranchesPanel } from './Branches'
 import { ServicesPanel } from './Services'
@@ -33,7 +37,9 @@ export function Workspace({ model, actions, repo }: { model: Model; actions: Act
   const [busy, setBusy] = useState<Busy>(null)
   const [banner, setBanner] = useState<OpError | null>(null)
   // Every repository opens on its Overview; the workspace is keyed by repository, so this resets on each selection.
-  const [tab, setTab] = useState<'overview' | 'branches' | 'history'>('overview')
+  const [tab, setTab] = useState<RepoTab>(actions.tab && actions.tab.repoId === repo.id ? actions.tab.tab : 'overview')
+  const [deleting, setDeleting] = useState(false)
+  const ops = useRepoOps(actions, model)
   const [branchCount, setBranchCount] = useState<number | null>(null)
   const [historyKey, setHistoryKey] = useState(0)
   const confirm = useConfirm()
@@ -61,7 +67,7 @@ export function Workspace({ model, actions, repo }: { model: Model; actions: Act
   const pull = async () => {
     setBusy('pull')
     const r = await api.pull(repo.id)
-    if (r.ok) actions.markFetched(repo.id)
+    if (r.ok) { actions.markFetched(repo.id); actions.setRestartHint(repo.id, r.value.affected) }
     await after(r)
     setBusy(null)
   }
@@ -96,9 +102,9 @@ export function Workspace({ model, actions, repo }: { model: Model; actions: Act
   const remove = async () => {
     if (running.length) { setBanner({ code: 'SERVICES_RUNNING', message: 'Stop the running services of this repository first.' }); return }
     const yes = await confirm({
-      title: `Remove ${repo.name} from GitManager?`,
-      description: 'The folder and its files stay where they are. Its development profiles are removed, and automatic discovery will not add it again.',
-      confirmLabel: 'Remove repository', destructive: true,
+      title: removeWords.title(repo.name), description: 'Only GitManager forgets it.', target: repo.location.path,
+      consequences: ['Files stay on disk', 'Its profiles are removed', 'Discovery will not add it again'],
+      confirmLabel: removeWords.confirm, destructive: true,
     })
     if (!yes) return
     const r = await api.removeRepo(repo.id)
@@ -117,13 +123,12 @@ export function Workspace({ model, actions, repo }: { model: Model; actions: Act
       <header className="gm-top">
         <DrawerToggle />
         <div className="gm-title">
-          <h1 className="gm-h1 truncate">{repo.name}</h1>
-          <span className="gm-path truncate" title={location}>{location}</span>
+          <Tooltip content={location}><h1 className="gm-h1 truncate" tabIndex={0}>{repo.name}</h1></Tooltip>
         </div>
         <span className="grow" />
         <BranchPicker repoId={repo.id} current={st?.branch ?? null} detached={st?.sync === 'detached'} disabled={!st || busy !== null} onSwitch={n => void switchTo(n)} onTrack={r => void track(r)} />
-        <Button variant="ghost" onClick={() => void fetch()} disabled={busy !== null || !st || !st.remotes.length} aria-busy={busy === 'fetch' || undefined}
-          title={st && !st.remotes.length ? 'This repository has no remote' : 'Fetch from the remote'}>
+        <Button variant="ghost" icon="terminal" onClick={() => ops.terminal(repo)}>Terminal</Button>
+        <Button variant="ghost" onClick={() => void fetch()} disabled={busy !== null || !st || !st.remotes.length} aria-busy={busy === 'fetch' || undefined}>
           {busy === 'fetch' ? <span className="sm-spinner" aria-hidden="true" /> : <Icon name="refresh" size={15} />}Fetch
         </Button>
         {canPull && (
@@ -131,14 +136,29 @@ export function Workspace({ model, actions, repo }: { model: Model; actions: Act
             {busy === 'pull' ? <span className="sm-spinner" aria-hidden="true" /> : <Icon name="arrow-down" size={15} />}Pull {st.behind}
           </Button>
         )}
+        <Button variant="ghost" icon="repeat" onClick={() => actions.sync(repo.id)} disabled={busy !== null || !st || !st.remotes.length}>Sync with Remote</Button>
         <MenuButton label="More actions" items={[
-          { label: 'Open folder', icon: 'folder-open', onSelect: () => void open('folder') },
+          { label: 'Open Folder', icon: 'folder-open', onSelect: () => void open('folder') },
           { label: 'Open in editor', icon: 'code', onSelect: () => void open('editor') },
-          { label: 'Refresh status', icon: 'refresh', shortcut: 'Ctrl R', onSelect: () => void actions.refresh(repo.id, { remote: true }) },
+          { label: 'Copy Path', icon: 'copy', onSelect: () => void ops.copyPath(repo) },
+          { label: 'Refresh', icon: 'refresh', shortcut: 'Ctrl R', onSelect: () => void actions.refresh(repo.id, { remote: true }) },
           { type: 'sep' },
-          { label: 'Remove from GitManager', icon: 'trash', danger: true, onSelect: () => void remove() },
+          { label: 'Remove from GitManager', icon: 'eye-off', onSelect: () => void remove() },
+          { label: 'Delete Local Repository', icon: 'trash', danger: true, onSelect: () => setDeleting(true) },
         ]} />
       </header>
+
+      {actions.restartHints[repo.id] && (
+        <div className="gm-hint-row">
+          <InlineAlert tone="info" action={{ label: actions.restartHints[repo.id].needsAttention === 1 ? 'Restart' : 'Restart all', onClick: () => void ops.restartAffected(repo.id) }}>{actions.restartHints[repo.id].text}</InlineAlert>
+        </div>
+      )}
+      <DeleteRepoDialog repo={deleting ? repo : null} onClose={() => setDeleting(false)} onDeleted={(message, notes, removed) => {
+        setDeleting(false)
+        void actions.reload().then(() => toast.success(message.length > 140 ? 'Moved to the trash' : message))
+        for (const n of notes) toast.info(n)
+        void removed
+      }} />
 
       <Facts model={model} repoId={repo.id} />
       {banner && <ErrorBanner error={banner} onDismiss={() => setBanner(null)} />}
@@ -155,11 +175,13 @@ export function Workspace({ model, actions, repo }: { model: Model; actions: Act
             <Tabs label="Repository" value={tab} onChange={setTab} items={[
               { value: 'overview', label: 'Overview' },
               { value: 'branches', label: branchCount ? `Branches ${branchCount}` : 'Branches' },
+              { value: 'worktrees', label: 'Worktrees' },
               { value: 'history', label: 'History' },
             ]} />
           </div>
           {tab === 'overview' && <ServicesPanel model={model} actions={actions} repo={repo} onError={setBanner} toast={toast} />}
           {tab === 'branches' && <BranchesPanel repo={repo} reloadKey={historyKey} onSwitch={n => void switchTo(n)} onTrack={r => void track(r)} onCount={setBranchCount} />}
+          {tab === 'worktrees' && <WorktreesPanel model={model} actions={actions} repo={repo} />}
           {tab === 'history' && <History repoId={repo.id} reloadKey={historyKey} sync={st.sync} />}
         </>
       )}
@@ -168,40 +190,22 @@ export function Workspace({ model, actions, repo }: { model: Model; actions: Act
   )
 }
 
-/** Branch state in three facts: working tree, relation to the upstream, and the remote. Muted label, value below (P11). */
+/** Branch state on one quiet line: upstream relation, working tree, and a remote only when it is a problem. */
 function Facts({ model, repoId }: { model: Model; repoId: string }) {
   const st = model.statuses[repoId]?.status
   const remote = model.remotes[repoId]
   const fetched = model.fetchedAt[repoId]
-  if (!st) return (
-    <div className="gm-facts" aria-hidden="true">
-      {[0, 1, 2].map(i => <div key={i} className="gm-fact"><span className="skeleton" style={{ width: 56, height: 9 }} /><span className="skeleton" style={{ width: 120, height: 12, marginTop: 8 }} /></div>)}
-    </div>
-  )
-  const attention = st.sync === 'diverged' || st.sync === 'upstream-gone' || st.changes.conflicted > 0
-  let remoteText = 'No remote'
-  if (st.remotes.length) {
-    if (remote === undefined) remoteText = 'Checking…'
-    else if (remote === null) remoteText = st.remotes[0]
-    else remoteText = remote.reachable ? `${remote.remote}, reachable` : `${remote.remote || st.remotes[0]}, not reachable`
-  }
+  if (!st) return <div className="gm-facts" aria-hidden="true"><span className="skeleton" style={{ width: 240, height: 12 }} /></div>
+  const attention = st.sync === 'diverged' || st.sync === 'upstream-gone'
   return (
-    <dl className="gm-facts">
-      <div className="gm-fact">
-        <dt>Working tree</dt>
-        <dd className={st.changes.conflicted ? 'gm-warn' : ''}>{changesText(st)}</dd>
-      </div>
-      <div className="gm-fact">
-        <dt>{st.upstream ?? 'Upstream'}</dt>
-        <dd className={attention ? 'gm-warn' : ''}>{syncText(st)}</dd>
-      </div>
-      <div className="gm-fact">
-        <dt>Remote</dt>
-        <dd className={remote && !remote.reachable ? 'gm-danger' : ''} title={remote?.error}>
-          {remoteText}{fetched ? <span className="muted">, fetched {ago(fetched)}</span> : null}
-        </dd>
-      </div>
-    </dl>
+    <p className="gm-facts-line">
+      {st.upstream && <span className="gm-mono">{st.upstream}</span>}
+      <span className={attention ? 'gm-warn' : ''}>{syncText(st)}</span>
+      <span className={st.changes.conflicted ? 'gm-warn' : ''}>{st.clean ? 'Clean' : changesText(st)}</span>
+      {remote && !remote.reachable && <span className="gm-danger" title={remote.error}>Remote unreachable</span>}
+      {!st.remotes.length && <span>No remote</span>}
+      {fetched ? <span className="faint">Fetched {ago(fetched)}</span> : null}
+    </p>
   )
 }
 

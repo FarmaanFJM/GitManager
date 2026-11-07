@@ -15,7 +15,7 @@ export type Data = {
   roots: Root[]
   profiles: Profile[]
   settings: Settings
-  ui: { selectedRepoId: string | null; selectedProfile: Record<string, string> }
+  ui: { selectedRepoId: string | null; selectedProfile: Record<string, string>; /** Last shell chosen for a repository (a ShellOption id). */ shellByRepo?: Record<string, string> }
   /** Repositories the user removed; automatic discovery skips them. Adding one manually lifts it. */
   ignored: IgnoredRepo[]
   /** Comparison base chosen by the user per repository (branch name), used when the default branch cannot be detected or to override it. */
@@ -62,6 +62,10 @@ export function sanitize(raw: unknown): { data: Data; dropped: number } {
   d.ui.selectedRepoId = typeof ui.selectedRepoId === 'string' && repoIds.has(ui.selectedRepoId) ? ui.selectedRepoId : null
   if (ui.selectedProfile && typeof ui.selectedProfile === 'object') {
     for (const [k, val] of Object.entries(ui.selectedProfile as Record<string, unknown>)) if (typeof val === 'string' && repoIds.has(k)) d.ui.selectedProfile[k] = val
+  }
+  if (ui.shellByRepo && typeof ui.shellByRepo === 'object') {
+    d.ui.shellByRepo = {}
+    for (const [k, val] of Object.entries(ui.shellByRepo as Record<string, unknown>)) if (typeof val === 'string' && repoIds.has(k) && /^[A-Za-z0-9:._ -]{1,80}$/.test(val)) d.ui.shellByRepo[k] = val
   }
   return { data: d, dropped }
 }

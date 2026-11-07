@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -12,7 +12,8 @@ const ENV = {
 export const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, env: ENV, encoding: 'utf8' }).trim()
 
 export function tempDir(prefix = 'gm-') {
-  const dir = mkdtempSync(join(tmpdir(), prefix))
+  // The canonical path: on Windows the temp folder is often an 8.3 short name (RUNNER~1) while Git reports the long one.
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), prefix)))
   return { dir, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
 }
 

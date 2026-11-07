@@ -486,3 +486,22 @@ button.gm-barrow:hover { background: var(--s2); }
 .gm-delete-perm p { margin: 0; font-size: var(--fs-sm); }
 .gm-delete-error { margin: 0; font-size: var(--fs-sm); }
 .gm-ack { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: var(--fs-sm); }
+
+/* ---------- main column: the view above, the terminal dock below ---------- */
+.gm-main { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.gm-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.gm-view > .gm-work { flex: 1; }
+
+/* ---------- overview rows (Summa-UI ActionRow) ---------- */
+.gm-ov-list { padding: 0 12px 32px; }
+.gm-ov-search { width: 220px; }
+.gm-ov-group { padding: 14px 8px 4px; }
+.gm-ov-name { background: none; border: 0; padding: 0; font: inherit; font-weight: 500; color: var(--text); cursor: pointer; text-align: left; }
+.gm-ov-meta { display: inline-flex; align-items: center; gap: 12px; min-width: 0; color: var(--text-2); font-size: var(--fs-sm); }
+.gm-ov-branch { max-width: 220px; color: var(--text-2); }
+.gm-ov-issue { font-size: var(--fs-sm); white-space: nowrap; }
+.gm-ov-restart { background: none; border: 0; padding: 2px 6px; margin: -2px -6px; border-radius: var(--r-sm); color: var(--text); cursor: pointer; font: inherit; font-size: var(--fs-sm); }
+.gm-ov-restart:hover { background: var(--hover); }
+.gm-ov-actions { display: inline-flex; gap: 2px; }
+.gm-hint-row { padding: 0 16px 8px; flex: none; }
+.gm-facts-line { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0; padding: 0 20px 12px; flex: none; color: var(--text-2); font-size: var(--fs-sm); }

@@ -101,7 +101,6 @@ export function FindReposDialog({ open, model, onClose, onAdded, onRootsChanged 
       {!found ? (
         <form onSubmit={e => { e.preventDefault(); void search() }}>
           <LocationInput model={model} path={path} setPath={p => { setPath(p); setError(null) }} where={where} setWhere={setWhere} autoFocus />
-          <p className="gm-hint">Searches {model.data.settings.discoveryDepth} levels deep and skips hidden and dependency folders.</p>
           {error && <p className="gm-field-error" role="alert">{error}</p>}
           <button type="submit" hidden />
         </form>

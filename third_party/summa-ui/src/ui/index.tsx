@@ -305,13 +305,13 @@ export function Dialog({ open, onClose, title, description, role = 'dialog', dis
 }
 
 /* ------------------------------------------------------------------ App shell */
-const ShellCtx = createContext<{ openDrawer: () => void; closeDrawer: () => void }>({ openDrawer: () => {}, closeDrawer: () => {} })
+const ShellCtx = createContext<{ openDrawer: () => void; closeDrawer: () => void; compact: boolean }>({ openDrawer: () => {}, closeDrawer: () => {}, compact: false })
 export const useShell = () => useContext(ShellCtx)
 
 /** Dark page with a lighter main panel. Sidebar collapses to a drawer on narrow viewports. */
-export function AppShell({ sidebar, children, sideWidth }: { sidebar: ReactNode; children: ReactNode; sideWidth?: number }) {
+export function AppShell({ sidebar, children, sideWidth, compact = false }: { sidebar: ReactNode; children: ReactNode; sideWidth?: number; compact?: boolean }) {
   const [open, setOpen] = useState(false)
-  const ctx = useMemo(() => ({ openDrawer: () => setOpen(true), closeDrawer: () => setOpen(false) }), [])
+  const ctx = useMemo(() => ({ openDrawer: () => setOpen(true), closeDrawer: () => setOpen(false), compact }), [compact])
   useEffect(() => {
     if (!open) return
     const k = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
@@ -320,7 +320,7 @@ export function AppShell({ sidebar, children, sideWidth }: { sidebar: ReactNode;
   }, [open])
   return (
     <ShellCtx.Provider value={ctx}>
-      <div className="shell" data-drawer={open ? 'open' : 'closed'}>
+      <div className="shell" data-drawer={open ? 'open' : 'closed'} data-side={compact ? 'compact' : undefined}>
         <aside className="shell-side" style={sideWidth ? { width: sideWidth } : undefined} onClick={e => { if ((e.target as HTMLElement).closest('[data-closes-drawer]')) setOpen(false) }}>{sidebar}</aside>
         <div className="shell-scrim" onClick={() => setOpen(false)} />
         <main className="shell-main">{children}</main>
@@ -344,8 +344,9 @@ export function Brand({ name }: { name: string }) {
 }
 
 export function NavItem({ icon, label, current, count, onClick, closesDrawer = true }: { icon?: IconName; label: string; current?: boolean; count?: number | string; onClick?: () => void; closesDrawer?: boolean }) {
+  const { compact } = useShell() // in the compact rail the label is visually hidden, so it moves to a tooltip (see styles/workspace.css)
   return (
-    <button type="button" className="nav-item" aria-current={current ? 'true' : undefined} onClick={onClick} {...(closesDrawer ? { 'data-closes-drawer': true } : {})}>
+    <button type="button" className="nav-item" aria-current={current ? 'true' : undefined} title={compact ? label : undefined} onClick={onClick} {...(closesDrawer ? { 'data-closes-drawer': true } : {})}>
       {icon && <Icon name={icon} size={16} />}
       <span className="truncate">{label}</span>
       {count !== undefined && <span className="count num">{count}</span>}
@@ -382,3 +383,5 @@ export function useHotkey(combo: string, fn: (e: KeyboardEvent) => void, deps: u
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
 }
+
+export * from './top'

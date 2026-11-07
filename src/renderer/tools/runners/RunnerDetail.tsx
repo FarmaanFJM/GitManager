@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
-import { Button, Icon, IconButton, MenuButton, Tag } from '../../../../third_party/summa-ui/src/ui'
+import { Button, Details, Icon, IconButton, InlineAlert, MenuButton, StatusIndicator, Tag, Tooltip, type MenuEntry } from '../../../../third_party/summa-ui/src/ui'
 import type { ToastApi } from '../../../../third_party/summa-ui/src/presets'
-import type { Runner, RunnerAction, RunnerDiagnostics, RunsOnExample } from '../../../shared/runners'
+import type { ActionResult, Runner, RunnerAction, RunsOnExample } from '../../../shared/runners'
 import { api } from '../../api'
-import { ENV_TEXT, OS_TEXT, StatusMark, copyText, dateTime, hostText, scopeKind, scopeText } from '../common'
+import { EnvironmentPanel } from '../../EnvironmentView'
+import { ENV_TEXT, OS_TEXT, copyText, dateTime, hostText, scopeKind, scopeText } from '../common'
+import { githubUrl, headerParts, restartOutcome, splitAttention, terminalBlock } from './detailLogic'
+import { RunnerDependencies } from './RunnerDependencies'
+import { RunnerLogs } from './RunnerLogs'
 
 const STARTUP_TEXT = { automatic: 'Starts automatically', manual: 'Manual start', disabled: 'Disabled', unknown: 'Startup unknown', 'not-applicable': '' }
 const SERVICE_KIND = { systemd: 'systemd service', launchd: 'launchd agent', 'windows-service': 'Windows service', none: 'No service', unknown: 'Service state unknown' }
@@ -13,57 +17,112 @@ function Row({ label, children, mono }: { label: string; children: React.ReactNo
   return <><dt>{label}</dt><dd className={mono ? 'gm-mono-sm' : ''}>{children}</dd></>
 }
 
-/** Everything known about one runner, GitHub facts and local observations kept apart, with the operations this GitManager can perform. */
-export function RunnerDetail({ runner: r, busy, toast, onClose, onAction, stacked }: { runner: Runner; busy: RunnerAction | undefined; toast: ToastApi; onClose: () => void; onAction: (action: RunnerAction | 'retire') => void; stacked: boolean }) {
+
+type View = 'logs' | 'environment' | 'dependencies'
+
+/** One runner: name, a muted status line, the primary actions, and everything else behind Details or the More menu. */
+export function RunnerDetail({ runner: r, busy, toast, onClose, onAction, stacked, onOpenTerminal, restartResult, onDismissResult }: {
+  runner: Runner; busy: RunnerAction | undefined; toast: ToastApi; onClose: () => void; onAction: (action: RunnerAction | 'retire') => void; stacked: boolean
+  /** Opens the runner's terminal. Omitted: the Terminal button is hidden. */
+  onOpenTerminal?: () => void
+  /** The outcome of the last Restart of this runner, shown concisely under the actions. */
+  restartResult?: ActionResult | null
+  onDismissResult?: () => void
+}) {
+  const [view, setView] = useState<View | null>(null)
   const [runsOn, setRunsOn] = useState<RunsOnExample | null>(null)
-  const [diag, setDiag] = useState<RunnerDiagnostics | null | 'loading'>(null)
-  useEffect(() => { setDiag(null); void api.runnersRunsOn(r.key).then(x => setRunsOn(x.ok ? x.value : null)) }, [r.key, r.github?.labels.length])
+  useEffect(() => { setView(null) }, [r.key])
+  useEffect(() => { void api.runnersRunsOn(r.key).then(x => setRunsOn(x.ok ? x.value : null)) }, [r.key, r.github?.labels.length])
   const c = r.capabilities
   const g = r.github, l = r.local
   const copy = async (text: string, what: string) => { (await copyText(text)) ? toast.success(`${what} copied`) : toast.error(`Could not copy the ${what.toLowerCase()}`) }
-  const loadDiag = async () => { setDiag('loading'); setDiag(await api.runnersDiagnostics(r.key)) }
   const openGitHub = () => { if (r.scope) void api.runnersOpen({ kind: 'runner-settings', scope: r.scope, runnerId: g?.id ?? null }) }
-  const running = l && (l.service.state === 'running' || l.process.running === true)
+  const running = !!l && (l.service.state === 'running' || l.process.running === true)
   const act = (a: RunnerAction | 'retire') => () => onAction(a)
-  const title = (cap: { allowed: boolean; reason: string | null }) => cap.reason ?? undefined
+  const head = headerParts(r)
+  const termBlock = terminalBlock(r)
+  const attention = splitAttention(r.attention)
+  const extra = [...attention.rest, ...r.notices]
+  const gh = githubUrl(r), svc = r.local?.gitHubUrl ?? null
+  const toggle = (v: View) => () => setView(cur => (cur === v ? null : v))
+  const restartDisabled = !c.restart.allowed || !!busy
+  const outcome = restartResult ? restartOutcome(restartResult) : null
+  const viewButton = (v: View, label: string) => <Button variant="secondary" className={view === v ? 'gm-on' : ''} aria-pressed={view === v} onClick={toggle(v)}>{label}</Button>
+  const menu: MenuEntry[] = [
+    running ? { label: 'Stop', icon: 'stop', disabled: !c.stop.allowed || !!busy, onSelect: act('stop') } : { label: 'Start', icon: 'play', disabled: !c.start.allowed || !!busy, onSelect: act('start') },
+    { label: 'Inspect service state', icon: 'activity', disabled: !c.inspect.allowed || !!busy, onSelect: act('inspect') },
+    { label: 'Check for updates', icon: 'download', disabled: !c.checkUpdate.allowed || !!busy, onSelect: act('check-update') },
+    { label: 'Update runner', icon: 'upload', disabled: !c.update.allowed || !!busy, onSelect: act('update') },
+    { type: 'sep' },
+    { label: 'Open installation folder', icon: 'folder-open', disabled: !c.openFolder.allowed, onSelect: () => void api.runnersOpen({ kind: 'folder', key: r.key }).then(x => { if (!x.ok) toast.error(x.error.message) }) },
+    { label: 'Copy installation path', icon: 'copy', disabled: !r.path, onSelect: () => void copy(r.path ?? '', 'Path') },
+    { label: 'Copy runner name', icon: 'copy', onSelect: () => void copy(r.name, 'Name') },
+    ...(svc ? [{ label: 'Copy service URL', icon: 'copy' as const, onSelect: () => void copy(svc, 'URL') }] : []),
+    ...(gh ? [{ label: 'Copy GitHub URL', icon: 'copy' as const, onSelect: () => void copy(gh, 'URL') }] : []),
+    { label: 'Runner settings on GitHub', icon: 'external', disabled: !r.scope, onSelect: openGitHub },
+    { type: 'sep' },
+    ...(l && !g ? [{ label: 'Retire installation', icon: 'archive' as const, disabled: !c.retire.allowed || !!busy, onSelect: act('retire') }] : []),
+    { label: g && !l ? 'Remove from GitHub' : 'Remove registration', icon: 'unlock', danger: true, disabled: !c.unregister.allowed || !!busy, onSelect: act('unregister') },
+    { label: 'Uninstall', icon: 'trash', danger: true, disabled: !c.uninstall.allowed || !!busy, onSelect: act('uninstall') },
+  ]
 
   return (
     <aside className={`gm-bdetail gm-rdetail ${stacked ? 'stacked' : ''}`} aria-label={`Runner ${r.name}`}>
       <div className="gm-bdetail-head">
         {stacked && <Button variant="ghost" icon="arrow-left" onClick={onClose}>Runners</Button>}
-        <h2 className="gm-h1 truncate">{r.name}</h2>
-        <StatusMark status={r.status} />
+        <div className="gm-rtitle">
+          <h2 className="gm-h1 truncate">{r.name}</h2>
+          <p className="gm-rsub muted">
+            <span>{head.env}</span><span aria-hidden="true">·</span><StatusIndicator state={head.mark.state} label={head.mark.label} />
+            {head.service && <><span aria-hidden="true">·</span><span>{head.service}</span></>}
+          </p>
+        </div>
         <span className="grow" />
         {busy && <span className="muted row"><span className="sm-spinner" aria-hidden="true" />{busy}</span>}
-        {!busy && (running ? <Button variant="secondary" icon="stop" disabled={!c.stop.allowed} title={title(c.stop)} onClick={act('stop')}>Stop</Button>
-          : <Button variant="secondary" icon="play" disabled={!c.start.allowed} title={title(c.start)} onClick={act('start')}>Start</Button>)}
-        <MenuButton label="More runner actions" items={[
-          { label: 'Restart', icon: 'refresh', disabled: !c.restart.allowed || !!busy, onSelect: act('restart') },
-          { label: 'Inspect service state', icon: 'activity', disabled: !c.inspect.allowed || !!busy, onSelect: act('inspect') },
-          { label: 'Check for updates', icon: 'download', disabled: !c.checkUpdate.allowed || !!busy, onSelect: act('check-update') },
-          { label: 'Update runner', icon: 'upload', disabled: !c.update.allowed || !!busy, onSelect: act('update') },
-          { type: 'sep' },
-          { label: 'Open installation folder', icon: 'folder-open', disabled: !c.openFolder.allowed, onSelect: () => void api.runnersOpen({ kind: 'folder', key: r.key }).then(x => { if (!x.ok) toast.error(x.error.message) }) },
-          { label: 'Copy installation path', icon: 'copy', disabled: !r.path, onSelect: () => void copy(r.path ?? '', 'Path') },
-          { label: 'Runner settings on GitHub', icon: 'external', disabled: !r.scope, onSelect: openGitHub },
-          { type: 'sep' },
-          ...(l && !g ? [{ label: 'Retire installation', icon: 'archive' as const, disabled: !c.retire.allowed || !!busy, onSelect: act('retire') }] : []),
-          { label: g && !l ? 'Remove from GitHub' : 'Remove registration', icon: 'unlock', danger: true, disabled: !c.unregister.allowed || !!busy, onSelect: act('unregister') },
-          { label: 'Uninstall', icon: 'trash', danger: true, disabled: !c.uninstall.allowed || !!busy, onSelect: act('uninstall') },
-        ]} />
+        <MenuButton label="More runner actions" items={menu} />
         {!stacked && <IconButton icon="x" size="sm" label="Close details" onClick={onClose} />}
       </div>
       <div className="gm-bdetail-body scroll">
-        {r.attention.length > 0 && (
-          <ul className="gm-alerts gm-rattention" aria-label="Needs attention">
-            {r.attention.map((a, i) => <li key={i} className="gm-alert warn"><Icon name="triangle-alert" size={15} /><span>{a}</span></li>)}
-          </ul>
+        {attention.shown.map((a, i) => <InlineAlert key={i} tone="warn">{a}</InlineAlert>)}
+        <div className="gm-ractions" role="toolbar" aria-label="Runner actions">
+          {onOpenTerminal && (
+            <Tooltip content={termBlock ?? ''} disabled={!termBlock}>
+              <span className="gm-ractions-tip" tabIndex={termBlock ? 0 : undefined}><Button variant="secondary" icon="terminal" disabled={!!termBlock} onClick={onOpenTerminal}>Terminal</Button></span>
+            </Tooltip>
+          )}
+          {viewButton('logs', 'Logs')}
+          {viewButton('environment', 'Environment')}
+          {viewButton('dependencies', 'Dependencies')}
+          <Tooltip content={c.restart.reason ?? ''} disabled={!c.restart.reason || !restartDisabled}>
+            <span className="gm-ractions-tip" tabIndex={restartDisabled ? 0 : undefined}><Button variant="secondary" icon="refresh" disabled={restartDisabled} onClick={act('restart')}>Restart</Button></span>
+          </Tooltip>
+        </div>
+        {outcome && restartResult && (
+          <div className="gm-rresult">
+            <div className="row">
+              {outcome.ok ? <StatusIndicator state="ready" label={outcome.label} /> : <InlineAlert tone="error">{outcome.label}</InlineAlert>}
+              <span className="grow" />
+              <IconButton icon="x" size="sm" label="Dismiss" onClick={() => onDismissResult?.()} />
+            </div>
+            {(restartResult.message || restartResult.detail || (restartResult.steps?.length ?? 0) > 0) && (
+              <Details label="Details">
+                {restartResult.message && <p>{restartResult.message}</p>}
+                {restartResult.detail && <pre className="gm-banner-detail">{restartResult.detail}</pre>}
+                {restartResult.steps && restartResult.steps.length > 0 && <ol className="gm-install-steps">{restartResult.steps.map((s, i) => <li key={i} className={`gm-istep ${s.state}`}><Icon name={s.state === 'done' ? 'circle-check' : s.state === 'failed' ? 'circle-x' : 'circle'} size={15} /><span className="grow">{s.label}{s.message ? <span className="muted"> {s.message}</span> : null}</span></li>)}</ol>}
+              </Details>
+            )}
+          </div>
         )}
-        {r.notices.length > 0 && (
-          <ul className="gm-alerts gm-rnotices" aria-label="Notes">
-            {r.notices.map((a, i) => <li key={i} className="gm-alert"><Icon name="info" size={15} /><span>{a}</span></li>)}
-          </ul>
-        )}
+        {view === 'logs' && <RunnerLogs runner={r} />}
+        {view === 'environment' && <EnvironmentPanel source={{ kind: 'runner', key: r.key }} toast={toast} />}
+        {view === 'dependencies' && <RunnerDependencies runner={r} onOpenTerminal={termBlock ? undefined : onOpenTerminal} />}
+        {view === null && (
+          <Details label="Details" className="gm-rmore">
+            {extra.length > 0 && (
+              <ul className="gm-alerts gm-rnotices" aria-label="Notes">
+                {extra.map((a, i) => <li key={i} className="gm-alert"><Icon name="info" size={15} /><span>{a}</span></li>)}
+              </ul>
+            )}
         <section className="gm-section" aria-label="Registration">
           <h3 className="gm-section-h">Registration <span className="muted">{g ? 'from GitHub' : l?.configured ? 'from the installation' : ''}</span></h3>
           <dl className="gm-props">
@@ -104,22 +163,11 @@ export function RunnerDetail({ runner: r, busy, toast, onClose, onAction, stacke
           <section className="gm-section" aria-label="Workflow usage">
             <h3 className="gm-section-h">Use in a workflow <IconButton icon="copy" size="sm" label="Copy runs-on" onClick={() => void copy(runsOn.yaml, 'runs-on')} /></h3>
             <pre className="gm-code gm-runs-on">{runsOn.yaml}</pre>
-            <p className="gm-section-empty gm-hint">{runsOn.note}</p>
+            <p className="gm-section-empty muted">{runsOn.note}</p>
             {r.scope?.kind === 'repo' && <p className="gm-section-empty"><button type="button" className="gm-linkbtn" onClick={() => void api.runnersOpen({ kind: 'workflows', scope: r.scope as never })}>Actions of {scopeText(r.scope)} on GitHub</button></p>}
           </section>
         )}
-        {l && (
-          <section className="gm-section" aria-label="Diagnostics">
-            <h3 className="gm-section-h">Diagnostic logs {diag === null && <Button variant="ghost" className="gm-banner-btn" disabled={!c.logs.allowed} onClick={() => void loadDiag()}>Read</Button>}{diag && diag !== 'loading' && <Button variant="ghost" className="gm-banner-btn" onClick={() => void loadDiag()}>Read again</Button>}</h3>
-            {diag === 'loading' && <p className="gm-section-empty muted row"><span className="sm-spinner" aria-hidden="true" /> Reading _diag</p>}
-            {diag && diag !== 'loading' && (diag.error ? <p className="gm-section-empty gm-warn">{diag.error}</p> : diag.logs.length === 0 ? <p className="gm-section-empty muted">No log files in _diag yet.</p>
-              : diag.logs.map(lg => (
-                <details key={lg.file} className="gm-diag">
-                  <summary><span className="gm-mono-sm">{lg.file}</span> <span className="faint">{lg.modifiedAt ? dateTime(lg.modifiedAt) : ''} {(lg.sizeBytes / 1024).toFixed(0)} KB</span></summary>
-                  <pre className="gm-code gm-diag-text">{lg.tail.join('\n')}</pre>
-                </details>
-              )))}
-          </section>
+          </Details>
         )}
       </div>
     </aside>

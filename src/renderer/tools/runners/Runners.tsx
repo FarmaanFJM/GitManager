@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Button, Dialog, DrawerToggle, Icon, MenuButton, Tabs, useMedia } from '../../../../third_party/summa-ui/src/ui'
+import { Button, Dialog, DrawerToggle, Icon, MenuButton, Tabs, Tooltip, useMedia } from '../../../../third_party/summa-ui/src/ui'
 import { useConfirm, useToast } from '../../../../third_party/summa-ui/src/presets'
 import type { ActionOptions, ActionResult, RetiredRunner, Runner, RunnerAction, RunnersState } from '../../../shared/runners'
 import type { OpError } from '../../../shared/types'
@@ -16,10 +16,6 @@ import { WorkflowsTab } from './Workflows'
 
 type Tab = 'runners' | 'workflows' | 'discovery'
 
-function Stat({ label, value, hint, accent }: { label: string; value: string | number; hint?: string; accent?: boolean }) {
-  return <div className="gm-stat"><dt>{label}</dt><dd className={accent ? 'gm-stat-accent' : ''}>{value}</dd>{hint && <span className="gm-stat-hint">{hint}</span>}</div>
-}
-
 function AuthNotice({ st }: { st: RunnersState }) {
   const a = st.auth
   if (!a || a.state === 'ok') return null
@@ -27,8 +23,8 @@ function AuthNotice({ st }: { st: RunnersState }) {
     <div className="gm-notice" role="status">
       <Icon name="lock" size={16} />
       <div>
-        <p>{a.state === 'no-gh' ? 'The GitHub CLI (gh) was not found, so GitHub cannot be read: only local installations are shown.' : a.state === 'unauthenticated' ? 'GitHub CLI is not signed in, so only local installations are shown.' : `GitHub could not be reached: ${a.message}`}</p>
-        <p className="gm-hint">{a.state === 'no-gh' ? <>Install it from <span className="gm-mono">cli.github.com</span> and run <span className="gm-mono">gh auth login</span>.</> : a.state === 'unauthenticated' ? <>Run <span className="gm-mono">gh auth login</span> in a terminal. Registering runners needs repository administration or, for organizations, the admin:org scope. GitManager never asks for a token.</> : 'Check the connection and try again.'}</p>
+        <p>{a.state === 'no-gh' ? 'GitHub CLI not found. Only local installations are shown.' : a.state === 'unauthenticated' ? 'GitHub CLI is not signed in. Only local installations are shown.' : `GitHub could not be reached: ${a.message}`}</p>
+        {a.state !== 'error' && <p className="gm-hint">{a.state === 'no-gh' ? <>Install it from <span className="gm-mono">cli.github.com</span>, then run <span className="gm-mono">gh auth login</span>.</> : <>Run <span className="gm-mono">gh auth login</span> in a terminal.</>}</p>}
       </div>
       <Button variant="secondary" onClick={() => void api.runnersAuth()}>Check again</Button>
     </div>
@@ -36,7 +32,7 @@ function AuthNotice({ st }: { st: RunnersState }) {
 }
 
 /** The Runner Manager: inventory, details and operations for GitHub Actions self-hosted runners. */
-export function RunnersView({ onBack }: { model: Model; actions: Actions; onBack: () => void }) {
+export function RunnersView({ onBack, actions }: { model: Model; actions?: Actions; onBack: () => void }) {
   const { state: st } = useRunnersState()
   const [tab, setTab] = useState<Tab>('runners')
   // A row's key changes when reconciliation pairs a local installation with its GitHub record (or a registration is removed),
@@ -49,6 +45,8 @@ export function RunnersView({ onBack }: { model: Model; actions: Actions; onBack
   const [add, setAdd] = useState(false)
   const [banner, setBanner] = useState<OpError | null>(null)
   const [result, setResult] = useState<ActionResult | null>(null)
+  // The outcome of the last Restart, shown in the runner's details instead of a toast or a dialog.
+  const [restartResult, setRestartResult] = useState<{ key: string; result: ActionResult } | null>(null)
   const confirm = useConfirm()
   const toast = useToast()
   const wide = useMedia('(min-width: 1180px)')
@@ -85,6 +83,8 @@ export function RunnersView({ onBack }: { model: Model; actions: Actions; onBack
     if (!r.ok) setBanner({ code: r.error.code, message: r.error.message }); else setBanner(null)
   }
   const runner = findRow(sel)
+  const sm = inv.summary
+  const counts = [plural(sm.total, 'runner'), sm.online ? `${sm.online} online` : '', sm.busy ? `${sm.busy} busy` : '', sm.offline ? `${sm.offline} offline` : '', sm.attention ? `${sm.attention} need attention` : ''].filter(Boolean).join(' · ')
   const selected = runner?.key ?? null
 
   const retire = async (r: Runner) => {
@@ -115,6 +115,7 @@ export function RunnersView({ onBack }: { model: Model; actions: Actions; onBack
   const act = async (r: Runner, action: RunnerAction | 'retire') => {
     if (action === 'retire') { await retire(r); return }
     const opts: ActionOptions = {}
+    if (action === 'restart') setRestartResult(null)
     const dir = r.path ?? ''
     if (r.github?.busy && ['stop', 'restart', 'update', 'unregister', 'uninstall'].includes(action)) {
       const yes = await confirm({ title: `${r.name} is running a job`, description: `GitHub reports this runner busy. ${action === 'stop' ? 'Stopping' : action === 'restart' ? 'Restarting' : action === 'update' ? 'Updating' : 'Removing'} it now interrupts and fails that job.`, confirmLabel: `${action[0].toUpperCase()}${action.slice(1)} anyway`, destructive: true })
@@ -145,7 +146,8 @@ export function RunnersView({ onBack }: { model: Model; actions: Actions; onBack
     const res = await api.runnersAction(r.key, action, opts)
     if (!res.ok) { setBanner({ code: res.error.code, message: res.error.message, detail: res.error.detail }); return }
     setBanner(null)
-    if (res.value.ok && ['start', 'stop', 'restart', 'inspect', 'check-update'].includes(action) && !res.value.updateAvailable) toast.success(res.value.message)
+    if (action === 'restart') { setRestartResult({ key: r.key, result: res.value }); if (selected !== r.key) { if (res.value.ok) toast.success('Restarted'); else toast.error('Restart failed') } return }
+    if (res.value.ok && ['start', 'stop', 'inspect', 'check-update'].includes(action) && !res.value.updateAvailable) toast.success(res.value.message)
     else setResult(res.value)
   }
 
@@ -156,7 +158,7 @@ export function RunnersView({ onBack }: { model: Model; actions: Actions; onBack
         <Button variant="ghost" icon="arrow-left" onClick={onBack} className="gm-tools-back">Tools</Button>
         <div className="gm-title">
           <h1 className="gm-h1">Runners</h1>
-          <span className="gm-path truncate">GitHub Actions self-hosted runners{st.auth?.state === 'ok' ? ` · ${st.auth.login}` : ''}</span>
+          {st.auth?.state === 'ok' && <span className="gm-path truncate">{st.auth.login}</span>}
         </div>
         <span className="grow" />
         {scanning && <span className="muted gm-scan-prog" role="status">{st.scan.phase === 'local' ? 'Looking' : st.scan.phase === 'github' ? 'Reading GitHub' : 'Scanning'}{st.scan.current ? ` · ${st.scan.current}` : ''}</span>}
@@ -179,16 +181,11 @@ export function RunnersView({ onBack }: { model: Model; actions: Actions; onBack
       {banner && <ErrorBanner error={banner} onDismiss={() => setBanner(null)} />}
       {st.job?.state === 'running' && !add && <p className="gm-branch-problem gm-job-line" role="status"><span className="sm-spinner" aria-hidden="true" />Installing {st.job.request.name}: {st.job.steps.find(s => s.state === 'running')?.label ?? 'working'}<Button variant="ghost" className="gm-banner-btn" onClick={() => setAdd(true)}>Show</Button></p>}
       {st.scan.cancelled && !scanning && <p className="gm-branch-problem" role="status"><Icon name="info" size={15} />The last scan was stopped; results so far are shown.</p>}
-      {inv.scannedAt && <p className="gm-branch-meta faint gm-scan-meta">Local installations read {ago(inv.localScannedAt)}{inv.githubScannedAt ? `, GitHub read ${ago(inv.githubScannedAt)}` : ', GitHub not read yet'}.</p>}
-
-      <dl className="gm-stats gm-rstats">
-        <Stat label="Runners" value={inv.summary.total} hint={inv.runners.filter(r => r.source === 'both').length ? `${inv.runners.filter(r => r.source === 'both').length} seen here and on GitHub` : inv.summary.total ? 'discovered' : undefined} />
-        <Stat label="Online" value={inv.summary.online} accent={inv.summary.online > 0} hint={inv.githubScannedAt ? undefined : 'from GitHub, not read yet'} />
-        <Stat label="Offline" value={inv.summary.offline} />
-        <Stat label="Busy" value={inv.summary.busy} hint="running a job" />
-        <Stat label="Manageable here" value={inv.summary.manageable} hint="start, stop, update" />
-        <Stat label="Monitoring only" value={inv.summary.monitoringOnly} hint="listed by GitHub, elsewhere" />
-      </dl>
+      {inv.scannedAt && (
+        <Tooltip content={`Local read ${ago(inv.localScannedAt)}${inv.githubScannedAt ? `, GitHub read ${ago(inv.githubScannedAt)}` : ', GitHub not read'}`}>
+          <p className="gm-branch-meta faint gm-scan-meta gm-rcounts" tabIndex={0}>{counts}</p>
+        </Tooltip>
+      )}
       {inv.limitations.length > 0 && <p className="gm-branch-meta faint gm-scan-meta gm-limits" title={inv.limitations.join('\n')}>{inv.limitations[0]}{inv.limitations.length > 1 ? ` (and ${plural(inv.limitations.length - 1, 'more note')}; see Discovery)` : ''}</p>}
 
       <div className="gm-tabs-row">
@@ -199,13 +196,15 @@ export function RunnersView({ onBack }: { model: Model; actions: Actions; onBack
         <div className="gm-branches gm-runners-pane" ref={paneRef}>
           {inv.runners.length === 0 && inv.retired.length === 0 && !scanning ? (
             <div className="sm-empty sm-empty--center gm-storage-empty grow">
-              <p className="sm-empty__text">{inv.scannedAt ? 'No runners were found on this computer or in the GitHub scopes that could be read.' : 'Scan to find runner installations here and the runners GitHub lists for your repositories.'}</p>
+              <p className="sm-empty__text">{inv.scannedAt ? 'No runners found' : 'No scan yet'}</p>
               <div className="row">{!inv.scannedAt && <Button variant="primary" icon="search" onClick={() => void scan()}>Scan for runners</Button>}<Button variant={inv.scannedAt ? 'primary' : 'secondary'} icon="plus" onClick={() => setAdd(true)}>Add runner</Button></div>
             </div>
           ) : (
             <>
               {!(stacked && runner) && <RunnerTable inv={inv} selected={selected} busy={st.busy} onSelect={k => select(k === selected && !stacked ? null : k)} onAction={(r, a) => void act(r, a)} onRestore={it => void restore(it)} onCleanup={it => void cleanup(it)} />}
-              {runner && <RunnerDetail runner={runner} busy={st.busy[runner.local?.key ?? runner.key]} toast={toast} onClose={() => setSel(null)} onAction={a => void act(runner, a)} stacked={stacked || !wide} />}
+              {runner && <RunnerDetail runner={runner} busy={st.busy[runner.local?.key ?? runner.key]} toast={toast} onClose={() => { setSel(null); setRestartResult(null) }} onAction={a => void act(runner, a)} stacked={stacked || !wide}
+                onOpenTerminal={actions ? () => actions.openTerminal({ type: 'runner', key: runner.key }) : undefined}
+                restartResult={restartResult?.key === runner.key ? restartResult.result : null} onDismissResult={() => setRestartResult(null)} />}
             </>
           )}
           {inv.runners.length === 0 && scanning && <div className="gm-loading-line"><span className="sm-spinner" aria-hidden="true" /> Scanning</div>}

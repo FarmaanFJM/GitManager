@@ -39,6 +39,12 @@ src/
     workflows.ts   runs-on reader and label matching
     manager.ts     RunnerManager: inventory, scans, jobs, actions, persistence (runners-state.json), events
     config.ts      the runners section of gitmanager.json, validated on load
+  core/ (control center)
+    shells.ts, terminals.ts, ptyNode.ts, runnerTerminal.ts   shell detection and planning (argv arrays), PTY sessions, runner shell planning
+    procs/         process and port discovery adapters (Windows PowerShell JSON, Unix /proc, per WSL distribution), ownership, safe stop, runtime and file environments
+    git/sync.ts, git/worktrees.ts, affected.ts               Sync with Remote, worktrees, services affected by a pull
+    runners/deps.ts                                          dependency inspection inside the runner's own host
+  main/devtools.ts  resolves terminal and process requests (repository, worktree, runner) and owns TerminalManager and ProcessInspector
   shared/      types and the API contract shared by all three layers (type-only, plus the method list)
   main/
     backend.ts     application logic behind the API; validates arguments, returns Results

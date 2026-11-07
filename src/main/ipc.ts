@@ -36,4 +36,6 @@ export function forwardEvents(backend: Backend, target: () => WebContents | null
   backend.storage.on('changed', () => send('storage-changed', null))
   backend.runners.on('status', st => send('runners-status', st))
   backend.runners.on('changed', () => send('runners-changed', null))
+  backend.dev.on('terminal-data', p => send('terminal-data', p))
+  backend.dev.on('terminal-changed', p => send('terminal-changed', p))
 }
