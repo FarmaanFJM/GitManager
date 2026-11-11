@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Dropdown, Icon, IconButton, SearchInput, Tabs, Tag } from '../../third_party/summa-ui/src/ui'
-import type { BranchDetail, BranchOverview, BranchRow, OpError, Repo } from '../shared/types'
+import { Button, Checkbox, Dropdown, Icon, IconButton, MenuButton, SearchInput, Tabs, Tag } from '../../third_party/summa-ui/src/ui'
+import type { BranchAnalysis, LocalBranchInfo } from '../shared/changes'
+import type { BlockerAction, BranchDetail, BranchOverview, BranchRow, OpError, Repo } from '../shared/types'
+import { eligibleNames, selectAllEligible, selectAllVisible } from './branchSelection'
+import { CleanBranchesDialog } from './CleanBranches'
+import * as sel from './selection'
 import { api } from './api'
 import { CommitRow, ErrorBanner } from './Workspace'
 import { ago, plural } from './util'
@@ -22,14 +26,21 @@ function upstreamText(b: BranchRow): string {
   }
 }
 
+/** The short deletion status shown in the list: why a branch can go, or why it cannot. */
+const DELETE_LABEL = (b: LocalBranchInfo): string => {
+  if (b.tier === 'blocked') return b.category === 'current' ? 'Checked out' : b.category === 'worktree' ? 'In worktree' : 'Protected'
+  if (b.tier === 'force') return 'Unmerged work'
+  return b.category === 'merged' ? 'Merged' : b.category === 'gone' ? 'Upstream gone' : 'Pushed'
+}
+
 const SOURCE_TEXT = { 'remote-head': 'default branch of', 'ls-remote': 'default branch advertised by', user: 'chosen by you' } as const
 
 /**
  * Every local and remote-tracking branch compared with the repository's default branch, from the last fetched state.
  * Opening a branch shows its details; nothing is checked out until the user presses the switch action.
  */
-export function BranchesPanel({ repo, reloadKey, onSwitch, onTrack, onCount }: {
-  repo: Repo; reloadKey: number; onSwitch: (name: string) => void; onTrack: (remoteRef: string) => void; onCount: (n: number) => void
+export function BranchesPanel({ repo, reloadKey, onSwitch, onTrack, onCount, onAction }: {
+  repo: Repo; reloadKey: number; onSwitch: (name: string) => void; onTrack: (remoteRef: string) => void; onCount: (n: number) => void; onAction: (a: BlockerAction) => void
 }) {
   const [data, setData] = useState<BranchOverview | null>(null)
   const [error, setError] = useState<OpError | null>(null)
@@ -40,6 +51,17 @@ export function BranchesPanel({ repo, reloadKey, onSwitch, onTrack, onCount }: {
   const [selected, setSelected] = useState<string | null>(null)
   const [version, setVersion] = useState(0)
   const seq = useRef(0)
+  // Deletion status of the local branches (merged, unmerged work, protected...), read after the list is up.
+  const [analysis, setAnalysis] = useState<BranchAnalysis | null>(null)
+  const [selection, setSelection] = useState<sel.Selection>(sel.emptySelection())
+  const [dialog, setDialog] = useState<null | { mode: 'delete' | 'clean'; names: string[] }>(null)
+  const shift = useRef(false)
+  const info = useMemo(() => new Map((analysis?.branches ?? []).map(b => [b.name, b])), [analysis])
+  useEffect(() => {
+    let live = true
+    void api.branchAnalyze(repo.id, {}).then(r => { if (live && r.ok) setAnalysis(r.value) })
+    return () => { live = false }
+  }, [repo.id, reloadKey, version])
 
   useEffect(() => {
     const n = ++seq.current
@@ -66,7 +88,7 @@ export function BranchesPanel({ repo, reloadKey, onSwitch, onTrack, onCount }: {
     return list.sort((a, b) => pin(a) - pin(b) || cmp[sort.key](a, b) * sort.dir || a.name.localeCompare(b.name))
   }, [data, q, filter, sort])
 
-  const sel = data?.branches.find(b => b.ref === selected) ?? null
+  const current = data?.branches.find(b => b.ref === selected) ?? null
   const setBase = async (name: string | null) => {
     const r = await api.setCompareBase(repo.id, name)
     if (!r.ok) setError(r.error); else setVersion(v => v + 1)
@@ -100,11 +122,27 @@ export function BranchesPanel({ repo, reloadKey, onSwitch, onTrack, onCount }: {
           <Tabs label="Show" flat value={filter} onChange={setFilter} items={[{ value: 'all', label: 'All' }, { value: 'local', label: 'Local' }, { value: 'remote', label: 'Remote' }]} />
           <span className="grow" />
           {loading && data && <span className="sm-spinner" aria-label="Updating" />}
+          <MenuButton icon="check" label="Select branches" items={[
+            { label: 'Select all visible', onSelect: () => setSelection(s => selectAllVisible(s, rows)) },
+            { label: 'Select all eligible', disabled: !analysis, onSelect: () => analysis && setSelection(selectAllEligible(analysis.branches)) },
+            { type: 'sep' },
+            { label: 'Clear selection', disabled: selection.keys.size === 0, onSelect: () => setSelection(sel.emptySelection()) },
+          ]} />
+          <Button variant="ghost" icon="trash" onClick={() => setDialog({ mode: 'clean', names: [] })} disabled={!data}>Clean Local Branches</Button>
           <span className="gm-label">Compared with</span>
           <Dropdown label="Comparison base" quiet searchable width={300} value={base?.name ?? null} placeholder="Choose a base"
             options={[...(data && data.base?.source === 'user' ? [{ value: '\u0000auto', label: 'Detect automatically' }] : []), ...baseOptions]}
             onChange={v => void setBase(v === '\u0000auto' ? null : v)} />
         </div>
+        {selection.keys.size > 0 && (
+          <div className="gm-bsel" role="toolbar" aria-label="Selected branches">
+            <span className="num">{selection.keys.size} selected</span>
+            {(() => { const hidden = [...selection.keys].filter(k => !rows.some(r => r.name === k)).length; return hidden > 0 ? <span className="faint">{hidden} hidden by the filter</span> : null })()}
+            <span className="grow" />
+            <Button variant="secondary" icon="trash" onClick={() => setDialog({ mode: 'delete', names: [...selection.keys] })}>Delete…</Button>
+            <IconButton icon="x" size="sm" label="Clear selection" onClick={() => setSelection(sel.emptySelection())} />
+          </div>
+        )}
         <p className="gm-branch-meta">
           {base
             ? <>{base.name} is the {SOURCE_TEXT[base.source]}{base.source !== 'user' && base.remote ? ` ${base.remote}` : ''}. Ahead and behind count commits against it. </>
@@ -122,48 +160,69 @@ export function BranchesPanel({ repo, reloadKey, onSwitch, onTrack, onCount }: {
         ) : (
           <div className="gm-btable" role="table" aria-label="Branches" aria-rowcount={rows.length}>
             <div className="gm-bhead" role="row">
+              <span role="columnheader">{(() => { const names = rows.filter(r => r.kind === 'local').map(r => r.name); const st = sel.state(selection, names); return names.length ? <Checkbox checked={st === 'all' ? true : st === 'some' ? 'mixed' : false} label="Select all visible branches" onChange={on => setSelection(x => (on ? selectAllVisible(x, rows) : sel.remove(x, names)))} /> : null })()}</span>
               <span role="columnheader"><span className="sr-only">Checked out</span></span>
               {head('name', 'Branch')}
               <span role="columnheader" className="gm-col-kind">Type</span>
               {head('behind', 'Behind', 'gm-col-num')}
               {head('ahead', 'Ahead', 'gm-col-num')}
               <span role="columnheader">Status</span>
+              <span role="columnheader" className="gm-col-del">Delete</span>
               <span role="columnheader" className="gm-col-up">Upstream</span>
               <span role="columnheader" className="gm-col-commit">Last commit</span>
               {head('date', 'Date', 'gm-col-date')}
             </div>
             <div className="gm-bbody scroll" role="rowgroup" onKeyDown={onListKey}>
-              {rows.map(b => (
-                <button key={b.ref} type="button" role="row" className={`gm-brow ${selected === b.ref ? 'selected' : ''}`} aria-selected={selected === b.ref} onClick={() => setSelected(b.ref)}
-                  title={`${b.ref} at ${b.short}`}>
-                  <span role="cell" className="gm-bmark">{b.current && <Icon name="check" size={14} aria-label="Checked out" role="img" />}</span>
-                  <span role="cell" className="gm-bname"><span className="truncate">{b.name}</span>{b.isBase && <Tag>Default</Tag>}{b.current && <span className="sr-only">, checked out</span>}</span>
-                  <span role="cell" className="gm-col-kind muted">{b.kind === 'local' ? 'Local' : 'Remote'}</span>
-                  <span role="cell" className="gm-col-num num">{b.isBase || b.compare === 'unrelated' ? '' : b.behind ?? ''}</span>
-                  <span role="cell" className="gm-col-num num">{b.isBase || b.compare === 'unrelated' ? '' : b.ahead ?? ''}</span>
-                  <span role="cell" className={`gm-bstate gm-cmp-${b.compare}`}>{COMPARE_LABEL[b.compare]}</span>
-                  <span role="cell" className={`gm-col-up ${b.upstreamState === 'gone' ? 'gm-warn' : 'muted'}`}>{upstreamText(b)}</span>
-                  <span role="cell" className="gm-col-commit truncate muted">{b.subject}</span>
-                  <span role="cell" className="gm-col-date muted">{ago(b.date)}</span>
-                </button>
-              ))}
+              {rows.map(b => {
+                const st = b.kind === 'local' ? info.get(b.name) : undefined
+                const isSel = selection.keys.has(b.name) && b.kind === 'local'
+                const localNames = rows.filter(r => r.kind === 'local').map(r => r.name)
+                return (
+                  <div key={b.ref} tabIndex={0} role="row" className={`gm-brow ${selected === b.ref ? 'selected' : ''}`} aria-selected={selected === b.ref} onClick={() => setSelected(b.ref)}
+                    onClickCapture={e => { shift.current = e.shiftKey }}
+                    onKeyDown={e => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter') setSelected(b.ref); else if (e.key === ' ' && b.kind === 'local') { e.preventDefault(); setSelection(x => sel.click(x, b.name, localNames, { range: e.shiftKey })) } }}
+                    title={`${b.ref} at ${b.short}`}>
+                    <span role="cell" className="gm-bcheck" onClick={e => e.stopPropagation()}>
+                      {b.kind === 'local' && <Checkbox checked={isSel} label={`Select ${b.name}`} onChange={() => setSelection(x => sel.click(x, b.name, localNames, { range: shift.current }))} />}
+                    </span>
+                    <span role="cell" className="gm-bmark">{b.current && <Icon name="check" size={14} aria-label="Checked out" role="img" />}</span>
+                    <span role="cell" className="gm-bname"><span className="truncate">{b.name}</span>{b.isBase && <Tag>Default</Tag>}{b.current && <span className="sr-only">, checked out</span>}</span>
+                    <span role="cell" className="gm-col-kind muted">{b.kind === 'local' ? 'Local' : 'Remote'}</span>
+                    <span role="cell" className="gm-col-num num">{b.isBase || b.compare === 'unrelated' ? '' : b.behind ?? ''}</span>
+                    <span role="cell" className="gm-col-num num">{b.isBase || b.compare === 'unrelated' ? '' : b.ahead ?? ''}</span>
+                    <span role="cell" className={`gm-bstate gm-cmp-${b.compare}`}>{COMPARE_LABEL[b.compare]}</span>
+                    <span role="cell" className={`gm-col-del gm-del-${st?.tier ?? 'none'}`} title={st?.blocker?.message ?? st?.note}>{st ? DELETE_LABEL(st) : ''}</span>
+                    <span role="cell" className={`gm-col-up ${b.upstreamState === 'gone' ? 'gm-warn' : 'muted'}`}>{upstreamText(b)}</span>
+                    <span role="cell" className="gm-col-commit truncate muted">{b.subject}</span>
+                    <span role="cell" className="gm-col-date muted">{ago(b.date)}</span>
+                  </div>
+                )
+              })}
               {rows.length === 0 && <p className="gm-section-empty muted">No branches match.</p>}
             </div>
           </div>
         )}
       </div>
-      {sel && data && (
-        <BranchDetailPane key={sel.ref} repo={repo} row={sel} overview={data} onClose={() => setSelected(null)}
+      {current && data && (
+        <BranchDetailPane key={current.ref} repo={repo} row={current} overview={data} onClose={() => setSelected(null)} status={info.get(current.name)}
+          onDelete={force => setDialog({ mode: 'delete', names: [current.name], ...(force ? {} : {}) })} onAction={a => (a.id === 'force-delete' ? setDialog({ mode: 'delete', names: [current.name] }) : onAction(a))}
           onSwitch={onSwitch} onTrack={onTrack} onMissing={() => { setSelected(null); setVersion(v => v + 1) }} />
+      )}
+      {dialog && (
+        <CleanBranchesDialog repo={repo} mode={dialog.mode} preselect={dialog.names} hasRemote={(data?.remotes.length ?? 0) > 0} onClose={() => setDialog(null)}
+          onAction={a => { setDialog(null); onAction(a) }}
+          onDone={deleted => { setSelection(s => sel.remove(s, deleted)); setVersion(v => v + 1) }} />
       )}
     </div>
   )
 }
 
 /** Details of one ref, side by side with the list (a content pane, not a second navigation sidebar: P14). */
-function BranchDetailPane({ repo, row, overview, onClose, onSwitch, onTrack, onMissing }: {
+function BranchDetailPane({ repo, row, overview, onClose, onSwitch, onTrack, onMissing, status, onDelete, onAction }: {
   repo: Repo; row: BranchRow; overview: BranchOverview; onClose: () => void; onSwitch: (n: string) => void; onTrack: (r: string) => void; onMissing: () => void
+  status?: LocalBranchInfo; onDelete: (force: boolean) => void; onAction: (a: BlockerAction) => void
 }) {
+  const commitsRef = useRef<HTMLElement>(null)
   const [d, setD] = useState<BranchDetail | null>(null)
   const [error, setError] = useState<OpError | null>(null)
   const base = overview.base
@@ -201,11 +260,31 @@ function BranchDetailPane({ repo, row, overview, onClose, onSwitch, onTrack, onM
                 : <Button variant="primary" onClick={() => onTrack(row.name)}>Create local branch {short}</Button>}
         </div>
 
+        {status && (
+          <div className={`gm-elig gm-elig-${status.tier}`}>
+            {status.tier === 'safe' && (
+              <>
+                <span className="gm-elig-text">{status.note}</span>
+                <Button variant="secondary" icon="trash" onClick={() => onDelete(false)}>Delete branch</Button>
+              </>
+            )}
+            {status.tier !== 'safe' && status.blocker && (
+              <>
+                <span className="gm-elig-text">{status.blocker.message}{status.tier === 'force' && status.onRemotes.length > 0 ? ` Also on ${status.onRemotes.slice(0, 2).join(', ')}.` : ''}</span>
+                <span className="gm-elig-actions">
+                  {(status.blocker.blocker?.actions ?? []).map(a => (
+                    <Button key={a.id} variant={a.id === 'force-delete' ? 'ghost' : 'secondary'} onClick={() => (a.id === 'inspect-commits' ? commitsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) : a.id === 'switch-default' && a.target ? onSwitch(a.target) : onAction(a))}>{a.label}</Button>
+                  ))}
+                </span>
+              </>
+            )}
+          </div>
+        )}
         {error && <ErrorBanner error={error} onDismiss={() => { setError(null); if (error.code === 'NO_REF') onMissing() }} />}
         {!row.isBase && base && !d && !error && <div className="gm-loading-line"><span className="sm-spinner" aria-hidden="true" /> Comparing</div>}
         {d && (
           <>
-            <section className="gm-section" aria-label="Commits only on this branch">
+            <section className="gm-section" aria-label="Commits only on this branch" ref={commitsRef}>
               <h3 className="gm-section-h">Only on {d.name} <span className="faint num">{d.unique.length >= 100 ? '100+' : d.unique.length}</span></h3>
               {d.unique.length ? <ul className="gm-commits">{d.unique.map(c => <CommitRow key={c.hash} c={c} compact />)}</ul> : <p className="gm-section-empty muted">None.</p>}
             </section>

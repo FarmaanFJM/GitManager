@@ -81,6 +81,19 @@ A repository can contain anything, including files that look like configuration.
 | Switch | `git switch --no-guess <branch>` | services running, conflicts, unsafe or unknown name |
 | Track | `git switch --no-guess --track -c <branch> <remote>/<branch>` | services running, local name exists, remote ref missing |
 
+| Changes | `git status --porcelain=v2 -z --untracked-files=all`; diffs with `git diff [--cached] -U<n>` and `git diff --no-index -- /dev/null <file>` | |
+| Stage / unstage | `git add -A -- <paths>` / `git restore --staged -- <paths>` | path not in the fresh status |
+| Discard / restore | `git restore --worktree -- <paths>` after `git stash create` (recovery snapshot) | no confirmation, untracked or conflicted file |
+| Delete untracked | OS trash, else `git clean -f -- <paths>` | no confirmation, tracked or ignored file |
+| Hunk | `git apply [--cached] [--reverse] --recount -` (patch on stdin) | stale hunk, new / deleted / renamed / binary file |
+| Commit | `git commit -F -` | no message, nothing staged, conflicts |
+| Stash | `git stash push|apply|pop|drop`, addressed by position and commit | stale list, local changes in files the stash writes, conflicts, no confirmation (drop) |
+| Delete local branch | `git branch -d -- <name>`, `-D` only for unmerged work that was acknowledged by name | current, checked out in a worktree, default or protected, tip moved |
+
+Changes, stashes and branch deletion are in `src/core/git/changes.ts`, `stash.ts` and `branchClean.ts`; the working tree and branches use the same `GitRun` seam as everything else, so WSL repositories run Git inside their distribution.
+`run()` can feed standard input (patches and commit messages), so no message or patch is ever put in an argument. A failed Git command becomes an `OpError` whose optional `blocker` carries the files, services or worktree that stand in the way and
+the actions that resolve exactly that (`src/core/git/errors.ts`); the page draws a button only for an action it can perform. A `RepoWatcher` (the Git directory and refs, no polling) reports outside changes. The clipboard is read by the main process.
+
 All Git commands run with `GIT_TERMINAL_PROMPT=0` (there is no terminal; credential helpers such as Git Credential Manager still work), `LC_ALL=C` (messages can be recognized) and a timeout. `--no-autostash` overrides a `merge.autostash` setting, and using `merge --ff-only` instead of `pull` makes a `pull.rebase` setting irrelevant, so user configuration cannot turn a pull into a stash, a merge commit or a rebase. One changing operation runs per repository at a time.
 
 ## Windows and WSL execution

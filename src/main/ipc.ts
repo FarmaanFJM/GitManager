@@ -38,4 +38,5 @@ export function forwardEvents(backend: Backend, target: () => WebContents | null
   backend.runners.on('changed', () => send('runners-changed', null))
   backend.dev.on('terminal-data', p => send('terminal-data', p))
   backend.dev.on('terminal-changed', p => send('terminal-changed', p))
+  backend.watcher.on('changed', p => send('repo-changed', p))
 }

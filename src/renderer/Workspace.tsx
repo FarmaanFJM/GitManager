@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, DrawerToggle, Icon, IconButton, InlineAlert, MenuButton, Tabs, Tooltip } from '../../third_party/summa-ui/src/ui'
 import { useConfirm, useToast } from '../../third_party/summa-ui/src/presets'
-import type { Commit, Comparison, OpError, Repo, Result } from '../shared/types'
+import type { BlockerAction, Commit, Comparison, OpError, Repo, Result } from '../shared/types'
 import { api } from './api'
 import type { Actions, Model, RepoTab } from './App'
 import { WorktreesPanel } from './Worktrees'
@@ -10,17 +10,29 @@ import { DeleteRepoDialog } from './DeleteRepoDialog'
 import { removeWords } from './deleteText'
 import { BranchPicker } from './BranchPicker'
 import { BranchesPanel } from './Branches'
+import { ChangesPanel } from './Changes'
+import { ChangesSummary } from './ChangesSummary'
 import { ServicesPanel } from './Services'
 import { ago, changesText, syncText } from './util'
 
-/** Inline error for a Git operation: what happened and how to recover, with Git's own words one click away. */
-export function ErrorBanner({ error, onDismiss }: { error: OpError; onDismiss: () => void }) {
+/**
+ * Inline error for a Git operation: what happened, what stands in the way (the files, the services, the worktree) and the actions that
+ * resolve exactly that. Actions come only from the error itself (src/core/git), and a button is drawn only when the caller can perform it.
+ * Git's own words are one click away.
+ */
+export function ErrorBanner({ error, onDismiss, onAction }: { error: OpError; onDismiss: () => void; onAction?: (a: BlockerAction) => void }) {
   const [open, setOpen] = useState(false)
+  const b = error.blocker
+  const files = b?.files ?? []
+  const actions = onAction ? b?.actions ?? [] : []
   return (
     <div className="gm-banner" role="alert">
       <Icon name="circle-alert" size={16} className="gm-banner-icon" />
       <div className="gm-banner-body">
         <p>{error.message}</p>
+        {files.length > 0 && <ul className="gm-banner-files" aria-label="Affected files">{files.slice(0, 6).map(f => <li key={f} className="gm-mono truncate" title={f}>{f}</li>)}{files.length > 6 && <li className="faint">and {files.length - 6} more</li>}</ul>}
+        {b?.services && b.services.length > 0 && <p className="faint gm-banner-svc">Running: {b.services.join(', ')}</p>}
+        {actions.length > 0 && <div className="gm-banner-actions">{actions.map(a => <Button key={a.id + (a.target ?? '')} variant="secondary" onClick={() => onAction!(a)}>{a.label}</Button>)}</div>}
         {error.detail && open && <pre className="gm-banner-detail">{error.detail}</pre>}
       </div>
       {error.detail && <button type="button" className="btn btn-ghost gm-banner-btn" aria-expanded={open} onClick={() => setOpen(o => !o)}>{open ? 'Hide details' : 'Details'}</button>}
@@ -48,6 +60,16 @@ export function Workspace({ model, actions, repo }: { model: Model; actions: Act
 
   // The branch count on the tab comes from the cheap branch list; the comparisons load only when the tab opens.
   useEffect(() => { void api.branches(repo.id).then(r => { if (r.ok) setBranchCount(r.value.length) }) }, [repo.id, historyKey])
+
+  const [stashRequested, setStashRequested] = useState(false)
+  // Git changes made outside GitManager (a terminal, another tool) refresh this repository once, without polling.
+  const actionsRef = useRef(actions)
+  actionsRef.current = actions
+  useEffect(() => {
+    void api.watchRepo(repo.id)
+    const off = api.on('repo-changed', e => { if (e.repoId === repo.id) { void actionsRef.current.refresh(repo.id); setHistoryKey(k => k + 1) } })
+    return () => { off(); void api.watchRepo(null) }
+  }, [repo.id])
 
   const after = useCallback(async <T,>(r: Result<T>) => {
     if (!r.ok) setBanner(r.error); else setBanner(null)
@@ -97,6 +119,28 @@ export function Workspace({ model, actions, repo }: { model: Model; actions: Act
     setBusy('switch')
     await after(await api.trackBranch(repo.id, ref))
     setBusy(null)
+  }
+
+  /** The actions an error can offer. Each one does exactly what its label says, nothing more. */
+  const blockerAction = async (a: BlockerAction) => {
+    switch (a.id) {
+      case 'view-changes': case 'view-conflicts': setBanner(null); setTab('changes'); break
+      case 'stash': setBanner(null); setTab('changes'); setStashRequested(true); break
+      case 'stop-services': {
+        const profiles = [...new Set(running.map(s => s.profileId))]
+        await Promise.all(profiles.map(p => api.stopServices(p)))
+        setBanner(null); toast.success('Stopped'); break
+      }
+      case 'open-worktree': {
+        const other = model.data.repos.find(r => r.id !== repo.id && r.location.kind === repo.location.kind && a.target && r.location.path.replace(/[\\/]+$/, '').toLowerCase() === a.target.replace(/[\\/]+$/, '').toLowerCase())
+        setBanner(null)
+        if (other) actions.select(other.id); else setTab('worktrees')
+        break
+      }
+      case 'switch-default': if (a.target) await switchTo(a.target); break
+      case 'inspect-commits': case 'force-delete': setBanner(null); setTab('branches'); break
+      case 'retry': setBanner(null); await actions.refresh(repo.id, { remote: true }); setHistoryKey(k => k + 1); break
+    }
   }
 
   const remove = async () => {
@@ -161,7 +205,7 @@ export function Workspace({ model, actions, repo }: { model: Model; actions: Act
       }} />
 
       <Facts model={model} repoId={repo.id} />
-      {banner && <ErrorBanner error={banner} onDismiss={() => setBanner(null)} />}
+      {banner && <ErrorBanner error={banner} onDismiss={() => setBanner(null)} onAction={a => void blockerAction(a)} />}
       {view?.error && !st && (
         <div className="sm-empty">
           <p className="sm-empty__text">{view.error.message}</p>
@@ -174,13 +218,20 @@ export function Workspace({ model, actions, repo }: { model: Model; actions: Act
           <div className="gm-tabs-row">
             <Tabs label="Repository" value={tab} onChange={setTab} items={[
               { value: 'overview', label: 'Overview' },
+              { value: 'changes', label: st.changes.files ? `Changes ${st.changes.files}` : 'Changes' },
               { value: 'branches', label: branchCount ? `Branches ${branchCount}` : 'Branches' },
               { value: 'worktrees', label: 'Worktrees' },
               { value: 'history', label: 'History' },
             ]} />
           </div>
-          {tab === 'overview' && <ServicesPanel model={model} actions={actions} repo={repo} onError={setBanner} toast={toast} />}
-          {tab === 'branches' && <BranchesPanel repo={repo} reloadKey={historyKey} onSwitch={n => void switchTo(n)} onTrack={r => void track(r)} onCount={setBranchCount} />}
+          {tab === 'overview' && (
+            <div className="gm-overview-stack scroll">
+              <ChangesSummary repo={repo} status={st} reloadKey={historyKey} onOpen={() => setTab('changes')} />
+              <ServicesPanel model={model} actions={actions} repo={repo} onError={setBanner} toast={toast} />
+            </div>
+          )}
+          {tab === 'changes' && <ChangesPanel repo={repo} reloadKey={historyKey} openStash={stashRequested} onStashHandled={() => setStashRequested(false)} onAction={a => void blockerAction(a)} onChanged={() => { void actions.refresh(repo.id); setHistoryKey(k => k + 1) }} />}
+          {tab === 'branches' && <BranchesPanel repo={repo} reloadKey={historyKey} onAction={a => void blockerAction(a)} onSwitch={n => void switchTo(n)} onTrack={r => void track(r)} onCount={setBranchCount} />}
           {tab === 'worktrees' && <WorktreesPanel model={model} actions={actions} repo={repo} />}
           {tab === 'history' && <History repoId={repo.id} reloadKey={historyKey} sync={st.sync} />}
         </>

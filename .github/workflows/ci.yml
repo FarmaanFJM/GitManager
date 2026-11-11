@@ -59,6 +59,8 @@ jobs:
         run: xvfb-run -a --server-args="-screen 0 1600x1000x24" npm run test:e2e:runners
       - name: Run the terminal Select to copy scenario (real shell, real clipboard)
         run: xvfb-run -a --server-args="-screen 0 1600x1000x24" npm run test:e2e:terminal-select
+      - name: Run the v1.0.2 scenario (changes, stashes, branch cleanup, blockers, terminal paste and placeholders)
+        run: xvfb-run -a --server-args="-screen 0 1600x1000x24" npm run test:e2e:changes
       - uses: actions/upload-artifact@v5
         if: always()
         with:

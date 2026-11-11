@@ -57,7 +57,7 @@ export function decodeOutput(buf: Buffer): string {
 }
 
 /** Runs a process to completion with a timeout. Never throws; a missing executable becomes spawnError. */
-export function run(spec: ExecSpec, opts: { timeoutMs?: number; maxBytes?: number } = {}): Promise<ExecResult> {
+export function run(spec: ExecSpec, opts: { timeoutMs?: number; maxBytes?: number; /** Text written to the process's standard input (a patch, a commit message). */ input?: string } = {}): Promise<ExecResult> {
   const timeoutMs = opts.timeoutMs ?? 60_000
   const maxBytes = opts.maxBytes ?? 16 * 1024 * 1024
   return new Promise(resolve => {
@@ -67,7 +67,7 @@ export function run(spec: ExecSpec, opts: { timeoutMs?: number; maxBytes?: numbe
     let child
     try {
       child = spawn(spec.file, spec.args, {
-        cwd: spec.cwd, env: { ...process.env, WSL_UTF8: '1', ...spec.env }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+        cwd: spec.cwd, env: { ...process.env, WSL_UTF8: '1', ...spec.env }, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
         windowsVerbatimArguments: spec.windowsVerbatimArguments,
       })
     } catch (e) {
@@ -75,6 +75,9 @@ export function run(spec: ExecSpec, opts: { timeoutMs?: number; maxBytes?: numbe
       return
     }
     const timer = setTimeout(() => { timedOut = true; child.kill() }, timeoutMs)
+    // Standard input is closed at once (end of input) unless text was given; a process that exits before reading it is not an error here.
+    child.stdin.on('error', () => { /* the exit code says why */ })
+    child.stdin.end(opts.input ?? '')
     const take = (list: Buffer[]) => (b: Buffer) => { size += b.length; if (size <= maxBytes) list.push(b) }
     child.stdout.on('data', take(out))
     child.stderr.on('data', take(err))

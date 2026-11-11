@@ -182,8 +182,9 @@ async function main() {
   await brow('origin/feature/board-themes').waitFor()
   const cells = async (name) => (await brow(name).locator('[role=cell]').allInnerTexts()).map(t => t.trim())
   const themes = await cells('origin/feature/board-themes')
-  check(themes[3] === '0' && themes[4] === '1' && themes[5] === 'Ahead', 'Branches: origin/feature/board-themes 1 ahead, 0 behind origin/main', themes.slice(3, 6).join(' / '))
-  check((await cells('origin/main'))[5] === 'Default' && (await brow('origin/main').locator('.tag').innerText()) === 'Default', 'Branches: default branch detected from the remote and marked')
+  // cell 0 is the selection checkbox (local branches), then the checked-out mark, name, type, behind, ahead, status
+  check(themes[4] === '0' && themes[5] === '1' && themes[6] === 'Ahead', 'Branches: origin/feature/board-themes 1 ahead, 0 behind origin/main', themes.slice(4, 7).join(' / '))
+  check((await cells('origin/main'))[6] === 'Default' && (await brow('origin/main').locator('.tag').innerText()) === 'Default', 'Branches: default branch detected from the remote and marked')
   check(await brow('feature/board-themes').first().locator('[aria-label="Checked out"]').count() === 1, 'Branches: checked-out branch marked without relying on colour')
   await brow('origin/feature/board-themes').click()
   await page.locator('.gm-bdetail').getByText('Only on origin/feature/board-themes').waitFor()

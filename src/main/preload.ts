@@ -17,8 +17,9 @@ const METHODS = [
   'procsScan', 'procsStop', 'procsEnv', 'configFiles', 'portConflicts', 'runnersDependencies', 'runnersEnvironment',
   'runnersState', 'runnersAuth', 'runnersScan', 'runnersCancel', 'runnersRefresh', 'runnersSaveSettings', 'runnersAddRoot', 'runnersRemoveRoot', 'runnersSshHosts', 'runnersAllowSsh', 'runnersProbe',
   'runnersRepos', 'runnersOrgs', 'runnersGroups', 'runnersPlan', 'runnersInstall', 'runnersCancelInstall', 'runnersAction', 'runnersRetire', 'runnersRestore', 'runnersCleanup', 'runnersDiagnostics', 'runnersRunsOn', 'runnersWorkflows', 'runnersOpen',
+  'changesRead', 'changesDiff', 'changesStage', 'changesStageAll', 'changesUnstage', 'changesUnstageAll', 'changesDiscard', 'changesRestore', 'changesDeleteUntracked', 'changesHunk', 'changesCommit', 'changesOpenFile', 'watchRepo', 'stashList', 'stashPreview', 'stashDiff', 'stashPush', 'stashApply', 'stashPop', 'stashDrop', 'branchAnalyze', 'branchDelete', 'branchRecovery', 'branchRestore', 'clipboardRead',
 ]
-const EVENTS = ['service-status', 'service-logs', 'logs-cleared', 'discovery-status', 'repo-added', 'storage-status', 'storage-changed', 'runners-status', 'runners-changed', 'terminal-data', 'terminal-changed']
+const EVENTS = ['service-status', 'service-logs', 'logs-cleared', 'discovery-status', 'repo-added', 'storage-status', 'storage-changed', 'runners-status', 'runners-changed', 'terminal-data', 'terminal-changed', 'repo-changed']
 
 const api: Record<string, unknown> = {}
 for (const m of METHODS) api[m] = (...args: unknown[]) => ipcRenderer.invoke(`gm:${m}`, ...args)

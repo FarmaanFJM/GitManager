@@ -8,12 +8,12 @@ export type ParsedStatus = {
   behind: number
   /** Upstream is configured but `branch.ab` is missing: the remote branch no longer exists (or was never fetched). */
   upstreamMissing: boolean
-  changes: { staged: number; unstaged: number; untracked: number; conflicted: number }
+  changes: { staged: number; unstaged: number; untracked: number; conflicted: number; /** Distinct changed paths (a file with staged and unstaged changes counts once). */ files: number }
 }
 
 /** Parses `git status --porcelain=v2 --branch -z`. */
 export function parsePorcelainV2(out: string): ParsedStatus {
-  const s: ParsedStatus = { oid: null, branch: null, upstream: null, ahead: 0, behind: 0, upstreamMissing: false, changes: { staged: 0, unstaged: 0, untracked: 0, conflicted: 0 } }
+  const s: ParsedStatus = { oid: null, branch: null, upstream: null, ahead: 0, behind: 0, upstreamMissing: false, changes: { staged: 0, unstaged: 0, untracked: 0, conflicted: 0, files: 0 } }
   let sawAb = false
   const fields = out.split('\0')
   for (let i = 0; i < fields.length; i++) {
@@ -34,11 +34,12 @@ export function parsePorcelainV2(out: string): ParsedStatus {
     const kind = f[0]
     if (kind === '1' || kind === '2') {
       const xy = f.slice(2, 4)
+      s.changes.files++
       if (xy[0] !== '.') s.changes.staged++
       if (xy[1] !== '.') s.changes.unstaged++
       if (kind === '2') i++ // a rename or copy is followed by its original path as a separate field
-    } else if (kind === 'u') s.changes.conflicted++
-    else if (kind === '?') s.changes.untracked++
+    } else if (kind === 'u') { s.changes.conflicted++; s.changes.files++ }
+    else if (kind === '?') { s.changes.untracked++; s.changes.files++ }
   }
   s.upstreamMissing = !!s.upstream && !sawAb
   return s

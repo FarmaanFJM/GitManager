@@ -8,9 +8,9 @@ import { AutoDiscovery } from '../core/autodiscovery.js'
 import { discover } from '../core/discovery.js'
 import { BranchInspector } from '../core/git/branches.js'
 import { hostOs, listWslDistros, type HostOs } from '../core/exec.js'
-import { Git } from '../core/git/ops.js'
+import { Git, defaultGitRun } from '../core/git/ops.js'
 import { classifySync, isClean } from '../core/git/status.js'
-import { editorSpec, openInBrowser } from '../core/launchers.js'
+import { editorFileSpec, editorSpec, openInBrowser } from '../core/launchers.js'
 import { displayLocation, normalizePath, parseLocationInput, sameLocation, wslUncPath } from '../core/paths.js'
 import { ServiceManager } from '../core/processes.js'
 import { draftProfile, fingerprint, isTrusted, planLaunch, readRuntimeFile, serviceKey, type FileReader, type Launch } from '../core/profiles.js'
@@ -31,6 +31,13 @@ import { RepoDeleter } from '../core/repoDelete.js'
 import { DevTools } from './devtools.js'
 import { SyncService } from '../core/git/sync.js'
 import { WorktreeService, suggestWorktreePath } from '../core/git/worktrees.js'
+import { ChangesService, safeRelativePath, type TrashFn } from '../core/git/changes.js'
+import { StashService } from '../core/git/stash.js'
+import { BranchCleaner } from '../core/git/branchClean.js'
+import { RecoveryLog } from '../core/git/recovery.js'
+import { RepoWatcher } from '../core/git/watcher.js'
+import type { BranchAnalysis, BranchDeleteItem, BranchDeleteResult, CommitResult, DeleteUntrackedResult, DiffOptions, DiscardResult, FileDiff, HunkAction, RecoveryRecord, StashApplyResult, StashEntry, StashPreview, StashPushResult, WorkingTree } from '../shared/changes.js'
+import { join as joinPath } from 'node:path'
 import { changedFiles, summarizeAffected } from '../core/affected.js'
 import { inspectDependencies } from '../core/runners/deps.js'
 import { readConfigFiles } from '../core/procs/env.js'
@@ -49,6 +56,8 @@ export type Host = {
   version: string
   /** Called after settings are saved or corrected (main.ts updates the tray). */
   settingsChanged?(settings: Settings): void
+  /** The system clipboard's text (Electron's clipboard.readText). Absent: pasting from the clipboard is unavailable. */
+  readClipboardText?(): string | Promise<string>
   /** A system notification (optional; used for scheduled storage results when the user turned them on). */
   notify?(title: string, body: string): void
 }
@@ -86,6 +95,7 @@ export class Backend {
       repos: () => store.data.repos, openExternal: u => host.openExternal(u), openPath: p => host.openPath(p),
     })
     this.sync = opts.sync ?? new SyncService(undefined, this.inspector)
+    this.cleaner = new BranchCleaner(defaultGitRun, this.inspector, this.sync, new RecoveryLog(joinPath(dirname(store.file), 'branch-recovery.json')))
     this.worktrees = opts.worktrees ?? new WorktreeService()
     this.dev = opts.dev ?? new DevTools({
       store, services: this.services, os: opts.os ?? hostOs(), findRunner: k => this.runners.find(k),
@@ -98,6 +108,10 @@ export class Backend {
   readonly sync: SyncService
   readonly worktrees: WorktreeService
   readonly dev: DevTools
+  readonly watcher = new RepoWatcher()
+  readonly cleaner: BranchCleaner
+  private readonly changes = new ChangesService()
+  private readonly stashes = new StashService()
 
   readonly inspector: BranchInspector
   readonly discovery: AutoDiscovery
@@ -245,7 +259,7 @@ export class Backend {
     return this.exclusive(repo.id, async (): Promise<Result<{ commits: number; affected: AffectedSummary | null }>> => {
       const r = await this.git.pull(repo.location)
       this.inspector.invalidate(repo.id)
-      if (!r.ok) return r
+      if (!r.ok) return this.withFiles(repo, r)
       return ok({ commits: r.value.commits, affected: await this.affectedBy(repo, r.value.from, r.value.to) })
     })
   }
@@ -394,7 +408,7 @@ export class Backend {
     const active = this.services.activeForRepo(repo.id)
     if (!active.length) return null
     const names = active.map(s => this.serviceName(s)).join(', ')
-    return { code: 'SERVICES_RUNNING', message: `Stop the running services (${names}) before switching branches. Their files would change underneath them.` }
+    return { code: 'SERVICES_RUNNING', message: `Stop the running services (${names}) before switching branches. Their files would change underneath them.`, blocker: { services: active.map(x => this.serviceName(x)), actions: [{ id: 'stop-services', label: active.length === 1 ? 'Stop service' : 'Stop services' }] } }
   }
 
   private serviceName(s: ServiceStatus) {
@@ -406,7 +420,7 @@ export class Backend {
     const name = v.str(branch, 'Branch', { max: 255, allowEmpty: false })
     const guard = this.runningGuard(repo)
     if (guard) return { ok: false, error: guard }
-    return this.exclusive(repo.id, async () => { const r = await this.git.switchBranch(repo.location, name); this.inspector.invalidate(repo.id); return r })
+    return this.exclusive(repo.id, async () => { const r = await this.git.switchBranch(repo.location, name); this.inspector.invalidate(repo.id); return this.withFiles(repo, r) })
   }
 
   async trackBranch(id: unknown, remoteRef: unknown): Promise<Result<{ branch: string }>> {
@@ -414,8 +428,134 @@ export class Backend {
     const ref = v.str(remoteRef, 'Remote branch', { max: 255, allowEmpty: false })
     const guard = this.runningGuard(repo)
     if (guard) return { ok: false, error: guard }
-    return this.exclusive(repo.id, async () => { const r = await this.git.trackRemote(repo.location, ref); this.inspector.invalidate(repo.id); return r })
+    return this.exclusive(repo.id, async () => { const r = await this.git.trackRemote(repo.location, ref); this.inspector.invalidate(repo.id); return this.withFiles(repo, r) })
   }
+
+
+  /* ------------------------------------------------------------ working tree, stashes, branch cleanup */
+
+  /** A "local changes" refusal names the files: Git's own list when it printed one, otherwise the changed files from a fresh status. */
+  private async withFiles<T>(repo: Repo, r: Result<T>): Promise<Result<T>> {
+    if (r.ok || r.error.code !== 'LOCAL_CHANGES' || r.error.blocker?.files?.length) return r
+    const t = await this.changes.read(repo.location)
+    if (!t.ok || !t.value.files.length) return r
+    const files = t.value.files.map(f => f.path)
+    return { ok: false, error: { ...r.error, blocker: { actions: r.error.blocker?.actions ?? [], files: files.slice(0, 50) } } }
+  }
+
+  private paths(raw: unknown): string[] {
+    if (!Array.isArray(raw) || raw.length > 5000) throw new v.ValidationError('Select the files first.')
+    return raw.map(p => { if (!safeRelativePath(p)) throw new v.ValidationError('A selected path is not valid.'); return p })
+  }
+
+  private changed<T>(repo: Repo, r: Result<T>): Result<T> { this.inspector.invalidate(repo.id); return r }
+
+  async changesRead(id: unknown): Promise<Result<WorkingTree>> { return this.changes.read(this.repo(id).location) }
+  async changesDiff(id: unknown, opts: unknown): Promise<Result<FileDiff>> {
+    const o = (opts ?? {}) as Record<string, unknown>
+    const area = o.area === 'staged' || o.area === 'unstaged' || o.area === 'untracked' ? o.area : null
+    if (!area) throw new v.ValidationError('Choose staged, unstaged or untracked.')
+    const options: DiffOptions = {
+      path: v.str(o.path, 'Path', { max: 4096, allowEmpty: false }), area,
+      ...(typeof o.from === 'string' && o.from ? { from: v.str(o.from, 'Path', { max: 4096 }) } : {}),
+      ...(typeof o.context === 'number' ? { context: o.context } : {}),
+    }
+    return this.changes.diff(this.repo(id).location, options)
+  }
+  async changesStage(id: unknown, paths: unknown) { const repo = this.repo(id); const p = this.paths(paths); return this.exclusive(repo.id, async () => this.changed(repo, await this.changes.stage(repo.location, p))) }
+  async changesStageAll(id: unknown) { const repo = this.repo(id); return this.exclusive(repo.id, async () => this.changed(repo, await this.changes.stageAll(repo.location))) }
+  async changesUnstage(id: unknown, paths: unknown) { const repo = this.repo(id); const p = this.paths(paths); return this.exclusive(repo.id, async () => this.changed(repo, await this.changes.unstage(repo.location, p))) }
+  async changesUnstageAll(id: unknown) { const repo = this.repo(id); return this.exclusive(repo.id, async () => this.changed(repo, await this.changes.unstageAll(repo.location))) }
+  async changesDiscard(id: unknown, paths: unknown, confirm: unknown): Promise<Result<DiscardResult>> {
+    const repo = this.repo(id); const p = this.paths(paths)
+    return this.exclusive(repo.id, async () => this.changed(repo, await this.changes.discard(repo.location, p, confirm === true)))
+  }
+  async changesRestore(id: unknown, paths: unknown) { const repo = this.repo(id); const p = this.paths(paths); return this.exclusive(repo.id, async () => this.changed(repo, await this.changes.restoreDeleted(repo.location, p))) }
+  async changesDeleteUntracked(id: unknown, paths: unknown, opts: unknown): Promise<Result<DeleteUntrackedResult>> {
+    const repo = this.repo(id); const p = this.paths(paths)
+    const o = (opts ?? {}) as Record<string, unknown>
+    // The trash is the operating system's: available for folders on this computer, not for a WSL distribution's file system.
+    const trash: TrashFn | null = this.host.trashItem && repo.location.kind === 'native' ? (loc, rel) => this.host.trashItem!(joinPath(loc.path, rel)) : null
+    return this.exclusive(repo.id, async () => this.changed(repo, await this.changes.deleteUntracked(repo.location, p, { confirm: o.confirm === true, permanent: o.permanent === true, trash })))
+  }
+  async changesHunk(id: unknown, opts: unknown): Promise<Result<{ path: string }>> {
+    const repo = this.repo(id)
+    const o = (opts ?? {}) as Record<string, unknown>
+    const action = o.action === 'stage' || o.action === 'unstage' || o.action === 'discard' ? (o.action as HunkAction) : null
+    const area = o.area === 'staged' || o.area === 'unstaged' ? o.area : null
+    if (!action || !area) throw new v.ValidationError('Choose what to do with the hunk.')
+    const hunkId = v.str(o.hunkId, 'Hunk', { max: 64, allowEmpty: false })
+    const path = v.str(o.path, 'Path', { max: 4096, allowEmpty: false })
+    return this.exclusive(repo.id, async () => this.changed(repo, await this.changes.hunk(repo.location, { path, area, hunkId, action, confirm: o.confirm === true })))
+  }
+  async changesCommit(id: unknown, message: unknown): Promise<Result<CommitResult>> {
+    const repo = this.repo(id)
+    const m = v.str(message, 'Commit message', { max: 20_000, allowEmpty: false })
+    return this.exclusive(repo.id, async () => this.changed(repo, await this.changes.commit(repo.location, m)))
+  }
+  async changesOpenFile(id: unknown, path: unknown): Promise<Result<void>> {
+    const repo = this.repo(id)
+    if (!safeRelativePath(path)) return err('BAD_PATH', 'That path is not valid.')
+    const editor = this.store.data.settings.editor || 'code'
+    const spec = editorFileSpec(editor, repo.location, path, this.os)
+    if (!spec) return err('BAD_PATH', 'That file name cannot be passed to the editor safely. Open it from the folder instead.')
+    return this.launchEditor(spec, editor)
+  }
+
+  /** Watches the selected repository's Git directory; native folders only (WSL file systems do not report changes reliably to Windows). */
+  async watchRepo(id: unknown): Promise<Result<{ watching: boolean }>> {
+    if (id === null) { this.watcher.stop(); return ok({ watching: false }) }
+    const repo = this.repo(id)
+    if (repo.location.kind !== 'native') { this.watcher.stop(); return ok({ watching: false }) }
+    const r = await this.git.exec(repo.location, ['rev-parse', '--absolute-git-dir'], 10_000)
+    if (r.code !== 0) return ok({ watching: false })
+    return ok({ watching: this.watcher.watch(repo.id, r.stdout.trim()) })
+  }
+
+  async stashList(id: unknown): Promise<Result<StashEntry[]>> { return this.stashes.list(this.repo(id).location) }
+  async stashPreview(id: unknown, index: unknown, sha: unknown): Promise<Result<StashPreview>> { return this.stashes.preview(this.repo(id).location, index, sha) }
+  async stashDiff(id: unknown, index: unknown, sha: unknown, path: unknown, untracked: unknown): Promise<Result<FileDiff>> {
+    return this.stashes.fileDiff(this.repo(id).location, index, sha, v.str(path, 'Path', { max: 4096, allowEmpty: false }), untracked === true)
+  }
+  async stashPush(id: unknown, opts: unknown): Promise<Result<StashPushResult>> {
+    const repo = this.repo(id); const o = (opts ?? {}) as Record<string, unknown>
+    return this.exclusive(repo.id, async () => this.changed(repo, await this.stashes.push(repo.location, { message: o.message, includeUntracked: o.includeUntracked })))
+  }
+  async stashApply(id: unknown, index: unknown, sha: unknown): Promise<Result<StashApplyResult>> {
+    const repo = this.repo(id)
+    return this.exclusive(repo.id, async () => this.changed(repo, await this.stashes.apply(repo.location, index, sha, false)))
+  }
+  async stashPop(id: unknown, index: unknown, sha: unknown): Promise<Result<StashApplyResult>> {
+    const repo = this.repo(id)
+    return this.exclusive(repo.id, async () => this.changed(repo, await this.stashes.apply(repo.location, index, sha, true)))
+  }
+  async stashDrop(id: unknown, index: unknown, sha: unknown, confirm: unknown) {
+    const repo = this.repo(id)
+    return this.exclusive(repo.id, async () => this.changed(repo, await this.stashes.drop(repo.location, index, sha, confirm === true)))
+  }
+
+  async branchAnalyze(id: unknown, opts: unknown): Promise<Result<BranchAnalysis>> {
+    const repo = this.repo(id); const o = (opts ?? {}) as Record<string, unknown>
+    const run = () => this.cleaner.analyze(repo.id, repo.location, { sync: o.sync === true, chosenBase: this.store.data.compareBase[repo.id] ?? null })
+    // Syncing writes remote-tracking refs, so it takes the repository's lock; a plain analysis only reads.
+    return o.sync === true ? this.exclusive(repo.id, run) : run()
+  }
+  async branchDelete(id: unknown, items: unknown): Promise<Result<BranchDeleteResult>> {
+    const repo = this.repo(id)
+    if (!Array.isArray(items) || items.length === 0 || items.length > 1000) throw new v.ValidationError('Select the branches to delete.')
+    const list: BranchDeleteItem[] = items.map(x => {
+      const o = (x ?? {}) as Record<string, unknown>
+      return { name: v.str(o.name, 'Branch', { max: 255, allowEmpty: false }), sha: v.str(o.sha, 'Commit', { max: 64, allowEmpty: false }), force: o.force === true }
+    })
+    return this.exclusive(repo.id, async () => this.cleaner.delete(repo.id, repo.id, repo.location, list, this.store.data.compareBase[repo.id] ?? null))
+  }
+  async branchRecovery(id: unknown): Promise<Result<RecoveryRecord[]>> { const repo = this.repo(id); return ok(await this.cleaner.records(repo.location, repo.id)) }
+  async branchRestore(id: unknown, recordId: unknown): Promise<Result<{ name: string }>> {
+    const repo = this.repo(id)
+    return this.exclusive(repo.id, async () => { const r = await this.cleaner.restore(repo.location, repo.id, v.id(recordId, 'Record')); this.inspector.invalidate(repo.id); return r })
+  }
+
+  async clipboardRead(): Promise<string> { return (await this.host.readClipboardText?.()) ?? '' }
 
   async openFolder(id: unknown): Promise<Result<void>> {
     const repo = this.repo(id)
@@ -427,7 +567,10 @@ export class Backend {
   async openEditor(id: unknown): Promise<Result<void>> {
     const repo = this.repo(id)
     const editor = this.store.data.settings.editor || 'code'
-    const spec = editorSpec(editor, repo.location, this.os)
+    return this.launchEditor(editorSpec(editor, repo.location, this.os), editor)
+  }
+
+  private launchEditor(spec: { file: string; args: string[]; cwd?: string; verbatim: boolean }, editor: string): Promise<Result<void>> {
     return new Promise(resolve => {
       let stderr = ''
       let settled = false

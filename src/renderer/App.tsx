@@ -19,7 +19,7 @@ import { TerminalDock, type DockApi } from './TerminalDock'
 import type { TerminalNote, TerminalTarget } from '../shared/terminal'
 
 export type RepoView = { status?: RepoStatus; error?: OpError; loading: boolean }
-export type RepoTab = 'overview' | 'branches' | 'worktrees' | 'history'
+export type RepoTab = 'overview' | 'changes' | 'branches' | 'worktrees' | 'history'
 export type View = { kind: 'overview' } | { kind: 'processes'; focus?: { port?: number; key?: string } } | { kind: 'repo' } | { kind: 'settings' } | { kind: 'storage' } | { kind: 'tools'; tool: ToolId | null } | { kind: 'profile'; profile: Profile; isNew: boolean }
 
 /** Everything the screens need, loaded from the main process and kept current by its events. */
@@ -216,7 +216,8 @@ export function App() {
           : repo ? <Workspace key={repo.id} model={model} actions={actions} repo={repo} />
             : <WelcomeEmpty hasRepos={model.data.repos.length > 0} searching={!!model.discovery?.running} onAdd={actions.addRepoDialog} />}
       </div>
-      <TerminalDock register={d => { dock.current = d }} target={repo ? { type: 'repo', repoId: repo.id } : null} onNote={(n: TerminalNote[]) => setNoteText(n.map(x => x.message).join(' '))} />
+      <TerminalDock register={d => { dock.current = d }} target={repo ? { type: 'repo', repoId: repo.id } : null} onNote={(n: TerminalNote[]) => setNoteText(n.map(x => x.message).join(' '))}
+        prefs={data!.settings.terminal} onPrefsChange={p => { void api.saveSettings({ ...data!.settings, terminal: p }).then(() => reload()) }} />
       {noteText && <InlineAlert tone="warn" action={{ label: 'Dismiss', onClick: () => setNoteText(null) }}>{noteText}</InlineAlert>}
       </div>
       {syncId && data?.repos.find(r => r.id === syncId) && (
