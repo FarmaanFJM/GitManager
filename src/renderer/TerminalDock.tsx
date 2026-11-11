@@ -2,10 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { Button, Dropdown, Icon, IconButton, MenuButton, Switch, useCopy } from '../../third_party/summa-ui/src/ui'
+import { Button, Dropdown, Icon, IconButton, Menu, MenuButton, useCopy } from '../../third_party/summa-ui/src/ui'
 import { useConfirm, useToast } from '../../third_party/summa-ui/src/presets'
 import { collectBlocks, formatBlocks, recordCommand, wholeBuffer, type Recorded } from './terminalBlocks'
 import type { ShellOption, TerminalInfo, TerminalNote, TerminalOpenRequest, TerminalTarget } from '../shared/terminal'
+import { syntaxForShell } from '../shared/placeholders'
+import { xtermOptions, type TerminalPrefs } from '../shared/terminalPrefs'
+import { TerminalController, type PendingPaste } from './terminalController'
+import { PlaceholderDialog } from './PlaceholderDialog'
 import { api } from './api'
 
 /** What the rest of the app can ask the dock to do. */
@@ -21,22 +25,25 @@ const THEME = {
   brightBlack: '#6f7473', brightRed: '#f58a8a', brightGreen: '#52d6a3', brightYellow: '#e6c776', brightBlue: '#95b8e3', brightMagenta: '#c9a8de', brightCyan: '#8fd3d0', brightWhite: '#f2f4f2',
 }
 
-const SELECT_TO_COPY_KEY = 'gm.terminal.selectToCopy'
-/** On by default; one preference for every terminal tab and repository, kept across restarts. */
-const readSelectToCopy = () => { try { return localStorage.getItem(SELECT_TO_COPY_KEY) !== '0' } catch { return true } }
+/** Before v1.0.2 Select to copy was a switch in this header, remembered in the browser; Settings now owns it. */
+const LEGACY_SELECT_TO_COPY_KEY = 'gm.terminal.selectToCopy'
 
-type Live = { term: Terminal; fit: FitAddon; el: HTMLDivElement; replayed: boolean }
+type Live = { term: Terminal; fit: FitAddon; el: HTMLDivElement; replayed: boolean; controller: TerminalController }
 
 /**
  * The embedded terminal: a bottom panel with Terminal | Shell | New tab | Close. Sessions live in the main process, so
  * switching views never ends one; closing a tab whose shell still runs something asks first. Only the controls are drawn:
  * no instructions around the terminal.
  */
-export function TerminalDock({ register, target, onNote }: {
+export function TerminalDock({ register, target, onNote, prefs, onPrefsChange }: {
   register: (d: DockApi) => void
   /** The target a New tab opens in when no tab is active: the selected repository. */
   target: TerminalTarget | null
   onNote: (n: TerminalNote[]) => void
+  /** Terminal preferences from Settings; changes apply to open terminals at once. */
+  prefs: TerminalPrefs
+  /** Saves a preference the dock itself migrated (the old Select to copy switch). */
+  onPrefsChange?: (p: TerminalPrefs) => void
 }) {
   const [sessions, setSessions] = useState<TerminalInfo[]>([])
   const [active, setActive] = useState<string | null>(null)
@@ -48,9 +55,10 @@ export function TerminalDock({ register, target, onNote }: {
   const confirm = useConfirm()
   const toast = useToast()
   const clipboard = useCopy()
-  const [selectToCopy, setSelectToCopy] = useState(readSelectToCopy)
-  const selectToCopyRef = useRef(selectToCopy)
-  selectToCopyRef.current = selectToCopy
+  const prefsRef = useRef(prefs)
+  prefsRef.current = prefs
+  const [pendingPaste, setPendingPaste] = useState<{ sessionId: string; paste: PendingPaste } | null>(null)
+  const [ctxMenu, setCtxMenu] = useState<{ sessionId: string; x: number; y: number; items: ('copy' | 'paste')[] } | null>(null)
   const clipboardRef = useRef(clipboard)
   clipboardRef.current = clipboard
   const toastRef = useRef(toast)
@@ -60,8 +68,27 @@ export function TerminalDock({ register, target, onNote }: {
   const live = useRef(new Map<string, Live>())
   const activeRef = useRef<string | null>(null)
   activeRef.current = active
+  const sessionsRef = useRef<TerminalInfo[]>([])
+  sessionsRef.current = sessions
 
-  const refreshShells = useCallback(() => { void api.terminalShells().then(s => { setShells(s); setShellId(cur => cur || s.find(x => x.available)?.id || '') }) }, [])
+  const refreshShells = useCallback(() => {
+    void api.terminalShells().then(s => {
+      setShells(s)
+      const wanted = prefsRef.current.defaultShell
+      setShellId(cur => cur || s.find(x => x.available && x.id === wanted)?.id || s.find(x => x.available)?.id || '')
+    })
+  }, [])
+  // A new default shell in Settings is what New tab uses from then on.
+  useEffect(() => { const s = shells.find(x => x.available && x.id === prefs.defaultShell); if (s) setShellId(s.id) }, [prefs.defaultShell, shells])
+  // The old header switch: carry an explicit "off" over to Settings once.
+  useEffect(() => {
+    try {
+      const old = localStorage.getItem(LEGACY_SELECT_TO_COPY_KEY)
+      if (old === null) return
+      localStorage.removeItem(LEGACY_SELECT_TO_COPY_KEY)
+      if (old === '0' && prefsRef.current.selectToCopy) onPrefsChange?.({ ...prefsRef.current, selectToCopy: false })
+    } catch { /* storage unavailable: the default stays */ }
+  }, [onPrefsChange])
   useEffect(() => { refreshShells(); void api.terminalList().then(l => { setSessions(l); if (l.length) { setActive(l[0].id) } }) }, [refreshShells])
 
   const open = useCallback(async (req: TerminalOpenRequest) => {
@@ -102,38 +129,37 @@ export function TerminalDock({ register, target, onNote }: {
     el.className = 'gm-term-pane'
     el.dataset.session = info.id
     container.appendChild(el)
-    const term = new Terminal({ fontFamily: 'ui-monospace, "Cascadia Code", Consolas, Menlo, monospace', fontSize: 13, cursorBlink: true, scrollback: 5000, theme: THEME, allowProposedApi: false, convertEol: false })
+    const term = new Terminal({ ...xtermOptions(prefsRef.current), theme: THEME, allowProposedApi: false, convertEol: false })
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(el)
-    // Select to copy: a selection made with the mouse is copied when the button is released (not while dragging, not for programmatic
-    // selections or output changes). The selection stays highlighted; focus returns to the terminal.
+    const controller = new TerminalController({
+      term, prefs: () => prefsRef.current, syntax: () => syntaxForShell(sessionsRef.current.find(x => x.id === info.id)?.shell.kind),
+      readClipboard: () => api.clipboardRead(), writeClipboard: t => clipboardRef.current.copy(t),
+      ask: p => setPendingPaste({ sessionId: info.id, paste: p }),
+      menu: (at, items) => setCtxMenu({ sessionId: info.id, x: at.x, y: at.y, items }),
+      notify: (k, m) => (k === 'error' ? toastRef.current.error(m) : toastRef.current.info(m)),
+    })
+    // Select to copy: a selection made with the left button is copied when the button is released (not while dragging, not for
+    // programmatic selections or output changes). The selection stays highlighted; focus returns to the terminal.
     el.addEventListener('mousedown', e => {
       if (e.button !== 0) return
-      const up = () => {
-        document.removeEventListener('mouseup', up, true)
-        window.setTimeout(() => {
-          if (!selectToCopyRef.current) return
-          const text = term.getSelection()
-          if (!text) return
-          void clipboardRef.current.copy(text).then(ok => { if (!ok) toastRef.current.error('Could not copy') }).finally(() => term.focus())
-        }, 0)
-      }
+      const up = () => { document.removeEventListener('mouseup', up, true); window.setTimeout(() => { void controller.selectionReleased() }, 0) }
       document.addEventListener('mouseup', up, true)
     })
+    // Right-click pastes, or opens the small Copy / Paste menu over a selection (see contextAction).
+    el.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); controller.contextMenu({ x: e.clientX, y: e.clientY }) })
+    // Anything the browser pastes on its own (the system menu, middle click) goes through the same inspection as the keyboard.
+    el.addEventListener('paste', e => { e.preventDefault(); e.stopPropagation(); controller.paste(e.clipboardData?.getData('text/plain') ?? '') }, true)
     term.onData(d => {
       // Enter marks the start of an output: remember which line the command is on (the text is read back from the buffer when copying).
       if (d === '\r') { const r = recordCommand(term); const list = records.current.get(info.id) ?? []; list.push(r); records.current.set(info.id, list.slice(-500)) }
       void api.terminalWrite(info.id, d)
     })
     term.onResize(({ cols, rows }) => { void api.terminalResize(info.id, cols, rows) })
-    // Copy with Ctrl+Shift+C / Ctrl+Insert and paste with Ctrl+Shift+V, leaving Ctrl+C for the shell (interrupt).
-    term.attachCustomKeyEventHandler(e => {
-      if (e.type === 'keydown' && e.ctrlKey && e.shiftKey && e.code === 'KeyC') { void navigator.clipboard.writeText(term.getSelection()); return false }
-      if (e.type === 'keydown' && e.ctrlKey && e.shiftKey && e.code === 'KeyV') { void navigator.clipboard.readText().then(t => { if (t) term.paste(t) }); return false }
-      return true
-    })
-    l = { term, fit, el, replayed: false }
+    // Ctrl+V, Shift+Insert and Ctrl+Shift+V paste; Ctrl+Shift+C and Ctrl+Insert copy; Ctrl+C stays the interrupt.
+    term.attachCustomKeyEventHandler(e => controller.key(e))
+    l = { term, fit, el, replayed: false, controller }
     live.current.set(info.id, l)
     void api.terminalReplay(info.id).then(text => { if (text) term.write(text); l!.replayed = true })
     return l
@@ -153,6 +179,21 @@ export function TerminalDock({ register, target, onNote }: {
     ro.observe(el)
     return () => ro.disconnect()
   }, [visible])
+
+  // Appearance changes made in Settings reach terminals that are already open.
+  useEffect(() => {
+    const o = xtermOptions(prefs)
+    for (const l of live.current.values()) {
+      const t = l.term.options
+      if (t.fontFamily !== o.fontFamily) t.fontFamily = o.fontFamily
+      if (t.fontSize !== o.fontSize) t.fontSize = o.fontSize
+      if (t.lineHeight !== o.lineHeight) t.lineHeight = o.lineHeight
+      if (t.cursorStyle !== o.cursorStyle) t.cursorStyle = o.cursorStyle
+      if (t.cursorBlink !== o.cursorBlink) t.cursorBlink = o.cursorBlink
+      if (t.scrollback !== o.scrollback) t.scrollback = o.scrollback
+      requestAnimationFrame(() => { try { l.fit.fit() } catch { /* hidden */ } })
+    }
+  }, [prefs])
 
   useEffect(() => () => { for (const l of live.current.values()) l.term.dispose(); live.current.clear() }, [])
 
@@ -216,10 +257,6 @@ export function TerminalDock({ register, target, onNote }: {
           ))}
         </div>
         <span className="grow" />
-        <label className="gm-dock-toggle">
-          <Switch checked={selectToCopy} label="Select to copy" onChange={v => { setSelectToCopy(v); try { localStorage.setItem(SELECT_TO_COPY_KEY, v ? '1' : '0') } catch { /* not persisted */ } }} />
-          <span>Select to copy</span>
-        </label>
         {current && <MenuButton icon="copy" size="sm" label="Copy output" items={[
           { label: 'Last command and output', icon: 'copy', onSelect: () => void copyOutput('last') },
           { label: 'All commands and outputs', icon: 'copy', onSelect: () => void copyOutput('all') },
@@ -239,6 +276,11 @@ export function TerminalDock({ register, target, onNote }: {
         </div>
       )}
       <div ref={host} className="gm-term-host" />
+      <PlaceholderDialog pending={pendingPaste?.paste ?? null} onResolve={(p, choice) => { const l = pendingPaste ? live.current.get(pendingPaste.sessionId) : null; setPendingPaste(null); l?.controller.resolvePaste(p, choice) }} />
+      <Menu anchor={ctxMenu ? { x: ctxMenu.x, y: ctxMenu.y } : null} open={!!ctxMenu} onClose={() => { const l = ctxMenu ? live.current.get(ctxMenu.sessionId) : null; setCtxMenu(null); l?.term.focus() }} label="Terminal"
+        items={(ctxMenu?.items ?? []).map(i => i === 'copy'
+          ? { label: 'Copy', icon: 'copy' as const, shortcut: 'Ctrl Shift C', onSelect: () => void live.current.get(ctxMenu!.sessionId)?.controller.choose('copy') }
+          : { label: 'Paste', icon: 'clipboard' as const, shortcut: 'Ctrl V', onSelect: () => void live.current.get(ctxMenu!.sessionId)?.controller.choose('paste') })} />
     </section>
   )
 }

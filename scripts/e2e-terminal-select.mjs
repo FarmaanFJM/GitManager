@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Select to copy, in the real window with a real shell: a mouse selection is copied to the system clipboard when the button is
-// released; the toggle turns it off and on, is remembered across a restart and shared by every tab and repository; the manual Copy
-// menu, typing, scrolling and Ctrl+C keep working. Linux (bash). Run: npm run build && xvfb-run -a node scripts/e2e-terminal-select.mjs
+// released; the Terminal setting (Settings > Terminal > Select to copy) turns it off and on, is remembered across a restart and
+// shared by every tab and repository; the manual Copy menu, typing, scrolling and Ctrl+C keep working. Linux (bash). Run: npm run build && xvfb-run -a node scripts/e2e-terminal-select.mjs
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -29,6 +29,10 @@ const launch = async () => {
 const clip = () => app.evaluate(({ clipboard }) => clipboard.readText())
 const setClip = t => app.evaluate(({ clipboard }, t) => clipboard.writeText(t), t)
 const toggle = () => page.getByRole('switch', { name: 'Select to copy' })
+/** The preference lives in Settings > Terminal (the terminal header no longer carries a switch). */
+const openSettings = async () => { await page.locator('.gm-side-foot .nav-item', { hasText: 'Settings' }).click(); await page.getByRole('heading', { name: 'Terminal' }).waitFor() }
+const selectToCopyOn = async () => { await openSettings(); return (await toggle().getAttribute('aria-checked')) === 'true' }
+const setSelectToCopy = async on => { if ((await selectToCopyOn()) !== on) { await toggle().click() } await page.getByRole('button', { name: 'Save' }).click(); await page.waitForTimeout(600); await page.locator('.gm-dock .xterm').last().click() }
 const rowsText = () => page.evaluate(() => [...document.querySelectorAll('.gm-dock .xterm-rows > div')].map(d => d.textContent.replace(/ /g, ' ')))
 /** Pixel position of a character cell: the terminal's DOM renderer, one row element per line. */
 async function cell(rowIndex, col) {
@@ -61,7 +65,7 @@ try {
   await page.reload(); await page.waitForSelector('.gm-side-foot')
   await openTerminal('alpha-repo')
 
-  check(await toggle().getAttribute('aria-checked') === 'true', 'Select to copy is on by default')
+  check(await selectToCopyOn() === true, 'Select to copy is on by default'); await page.locator('.gm-dock .xterm').last().click()
   await typeLine('echo alpha-bravo charlie')
   await typeLine("printf 'one\\ntwo\\nthree\\n'")
   await page.screenshot({ path: join(OUT, '01-terminal.png') })
@@ -96,8 +100,8 @@ try {
   check((await clip()) === 'KEEP', 'a click without a selection leaves the clipboard alone')
 
   // 5. off: the selection works but the clipboard is untouched; the manual Copy menu still copies
-  await toggle().click()
-  check(await toggle().getAttribute('aria-checked') === 'false', 'the toggle turns off')
+  await setSelectToCopy(false)
+  check(await selectToCopyOn() === false, 'the setting turns off'); await page.locator('.gm-dock .xterm').last().click()
   await setClip('UNTOUCHED')
   await drag(li, 'alpha-'.length, li, 'alpha-bravo'.length)
   check((await clip()) === 'UNTOUCHED', 'off: selecting does not change the clipboard')
@@ -108,34 +112,41 @@ try {
   check(/printf/.test(await clip()) && /^three$/m.test(await clip()), 'the manual Copy still works while auto-copy is off')
 
   // 6. on again
-  await toggle().click()
+  await setSelectToCopy(true)
   await setClip('SENTINEL')
   await drag(li, 'alpha-'.length, li, 'alpha-bravo'.length)
   check((await clip()) === 'bravo', 'on again: automatic copying is back')
 
   // 7. same preference in another tab and another repository
-  await toggle().click() // off, then check it follows tabs and repositories
+  await setSelectToCopy(false) // off, then check it applies to new tabs and other repositories' terminals
   await page.getByRole('button', { name: 'New tab' }).click()
   await page.waitForTimeout(800)
-  check(await toggle().getAttribute('aria-checked') === 'false', 'a new tab shows the same preference')
+  await page.locator('.gm-dock .xterm').last().click()
+  await setClip('NEW-TAB-SENTINEL'); await page.keyboard.type('echo tabtext\n'); await page.waitForTimeout(400)
+  const tl = await lineOf('tabtext'); await drag(tl, 0, tl, 4)
+  check((await clip()) === 'NEW-TAB-SENTINEL', 'a new tab follows the same preference (off)')
   await openTerminal('beta-repo')
-  check(await toggle().getAttribute('aria-checked') === 'false', 'a terminal for another repository shows the same preference')
+  await setClip('BETA-SENTINEL'); await page.keyboard.type('echo betatext\n'); await page.waitForTimeout(400)
+  const bl = await lineOf('betatext'); await drag(bl, 0, bl, 4)
+  check((await clip()) === 'BETA-SENTINEL', 'a terminal for another repository follows it too')
   await page.getByRole('tab').first().click()
-  check(await toggle().getAttribute('aria-checked') === 'false', 'switching back to the first tab keeps it')
+  check(await selectToCopyOn() === false, 'switching back to the first tab keeps it')
 
   // 8. the preference survives a restart (off), and so does on
   await app.close(); await launch()
   await page.locator('.gm-side-foot .nav-item', { hasText: 'Repositories' }).click()
   await page.getByRole('button', { name: /^Terminal, alpha-repo/ }).click()
   await page.waitForSelector('.gm-dock .xterm', { timeout: 15000 })
-  check(await toggle().getAttribute('aria-checked') === 'false', 'off survives a restart')
-  await toggle().click()
+  check(await selectToCopyOn() === false, 'off survives a restart')
+  await setSelectToCopy(true)
   await app.close(); await launch()
+  await page.locator('.gm-side-foot .nav-item', { hasText: 'Repositories' }).click()
   await page.getByRole('button', { name: /^Terminal, alpha-repo/ }).click()
   await page.waitForSelector('.gm-dock .xterm', { timeout: 15000 })
-  check(await toggle().getAttribute('aria-checked') === 'true', 'on survives a restart')
+  check(await selectToCopyOn() === true, 'on survives a restart')
 
   // 9. terminal behaviour: typing, scrolling, Ctrl+C
+  await page.locator('.gm-side-foot .nav-item', { hasText: 'Repositories' }).click()
   await page.waitForFunction(() => /[#$%>]\s*$/.test(document.querySelector('.gm-dock .xterm-rows')?.textContent ?? ''), null, { timeout: 15000 })
   await page.locator('.gm-dock .xterm').last().click()
   await typeLine('seq 1 120')

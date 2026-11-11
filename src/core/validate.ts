@@ -1,3 +1,4 @@
+import { DEFAULT_TERMINAL_PREFS, validateTerminalPrefs } from '../shared/terminalPrefs.js'
 import type { Browser, Location, Profile, Readiness, Runtime, ServiceDef, Settings } from '../shared/types.js'
 
 // Validation for everything that crosses a trust boundary: IPC arguments from the renderer and the config file on disk.
@@ -136,6 +137,13 @@ export function profile(v: unknown): Profile {
   }
 }
 
+/** Missing preferences (an older file) get the defaults; a present but unsupported value is refused with its reason. */
+function terminalPrefs(raw: unknown) {
+  if (raw === undefined) return DEFAULT_TERMINAL_PREFS
+  const r = validateTerminalPrefs(raw)
+  return r.ok ? r.prefs : fail(r.message)
+}
+
 export function settings(v: unknown): Settings {
   if (!isObj(v)) return fail('Settings are invalid.')
   return {
@@ -146,6 +154,7 @@ export function settings(v: unknown): Settings {
     launchAtStartup: v.launchAtStartup === true,
     startMinimized: v.startMinimized === true,
     minimizeToTray: v.minimizeToTray === true,
+    terminal: terminalPrefs(v.terminal),
   }
 }
 

@@ -142,9 +142,13 @@ export class DevTools extends EventEmitter {
         ;({ plan, notes, title } = rp)
       } else {
         const saved = res.repo ? this.d.store.data.ui.shellByRepo?.[res.repo.id] : undefined
+        // Which shell: the one asked for; else the default shell from Settings when it can open this folder; else the repository's last
+        // shell; else the folder's own.
+        const pref = this.d.store.data.settings.terminal.defaultShell
+        const wanted = pref !== 'auto' ? preferredShellFor(res.location, pref, shells) : null
         const shell = typeof r.shellId === 'string' && r.shellId
           ? shells.find(s => s.id === r.shellId)
-          : preferredShellFor(res.location, saved, shells)
+          : wanted && wanted.id.toLowerCase() === pref.toLowerCase() ? wanted : preferredShellFor(res.location, saved, shells)
         if (!shell) return err('NO_SHELL', 'No shell is available for this folder.')
         if (!shell.available) return err('NO_SHELL', shell.detail ? `${shell.label} is not available: ${shell.detail}` : `${shell.label} is not available.`)
         const cannot = shellCannotOpen(shell, res.location)

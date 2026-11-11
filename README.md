@@ -12,7 +12,9 @@ Open GitManager, select a repository, fetch and pull, pick a branch, press Run, 
 
 **Control center** (details in [docs/DEVTOOLS.md](docs/DEVTOOLS.md))
 - Repositories open as one compact row each: name, branch, state, quick **Terminal**, and a context menu (Open, Open Terminal, Fetch, Pull, Sync with Remote, Branches, Worktrees, Copy Path, Open Folder, Remove from GitManager, Delete Local Repository).
-- **Terminal**: a real PTY in a bottom dock, in the repository's folder, in PowerShell, PowerShell 7 or any WSL distribution.
+- **Terminal**: a real PTY in a bottom dock, in the repository's folder, in PowerShell, PowerShell 7 or any WSL distribution, with right-click paste, select to copy, preferences in Settings and a dialog that completes `YOUR_TOKEN`-style placeholders before a pasted command is inserted (never run) ([docs/TERMINAL.md](docs/TERMINAL.md)).
+- **Changes**: staged, unstaged, untracked and conflicted files with diffs; stage, unstage, discard, restore, delete, hunks, commit and stashes without another tool ([docs/CHANGES.md](docs/CHANGES.md)).
+- **Branches**: multi-select, deletion status, safe and forced deletion with recovery commands, and Clean Local Branches ([docs/BRANCHES.md](docs/BRANCHES.md)).
 - **Processes**: what listens on which port, started by GitManager or not, with repository, Stop (confirmed for outside processes) and a read-only **Environment** (runtime and files kept apart; secrets revealable).
 - **Sync with Remote**: fetch, prune, and a reviewed cleanup of obsolete local branches that never deletes unmerged work silently.
 - **Pull while services run**, with "Backend updated · Restart" only for the services the change affects; verified restart.
@@ -113,6 +115,7 @@ npm test                  # unit and integration tests: temporary Git repositori
 npm run test:e2e          # the first-release acceptance scenario against the built app
 npm run test:e2e:storage  # the Storage scenario: the real app against a stand-in for the GitHub CLI (no network, no real repository)
 npm run test:e2e:menus   # the repository context menu, removal and deletion with a real trash, opaque menus measured in the real window, retiring an orphaned runner (Linux)
+npm run test:e2e:changes  # v1.0.2: changes, stashes, branch cleanup, blockers and the terminal's paste, copy and placeholder dialog in the real window (Linux)
 npm run test:e2e:runners  # the Runners scenario: discovery, GitHub reconciliation, the wizard installing a stand-in runner package, lifecycle (Linux)
 node scripts/e2e-windows.mjs release/GitManager-<version>-x64.exe   # Windows: install and test the installed build
 ```
@@ -129,6 +132,9 @@ node scripts/e2e-windows.mjs release/GitManager-<version>-x64.exe   # Windows: i
 
 - [Storage](docs/STORAGE.md): artifact inventory, classification rules, safe deletion, Auto Cleanup, and what the GitHub API cannot tell.
 - [Repository actions](docs/REPOSITORIES.md): the right-click menu, removing a repository from GitManager and deleting its local folder safely.
+- [Terminal](docs/TERMINAL.md): preferences, copy and paste, placeholder completion and its limits.
+- [Changes and stashes](docs/CHANGES.md): the working-tree view, what each action runs, safety rules.
+- [Branches](docs/BRANCHES.md): selection, deletion status, force deletion, recovery, Clean Local Branches, blockers.
 - [Runners](docs/RUNNERS.md): the Tools section and the Runner Manager: discovery, installation, service management, WSL, permissions, security, troubleshooting and what was verified.
 - [Live verification](docs/LIVE_VERIFICATION.md): qualifying Storage against real GitHub and Windows, with an independent reconciliation script.
 - [Architecture](docs/ARCHITECTURE.md): modules, process model, security, Windows and WSL execution.

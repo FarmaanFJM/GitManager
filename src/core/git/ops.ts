@@ -3,8 +3,8 @@ import { gitSpec, run, type ExecResult } from '../exec.js'
 import { gitError } from './errors.js'
 import { isClean, parsePorcelainV2, planPull, type ParsedStatus } from './status.js'
 
-export type GitRun = (loc: Location, args: string[], timeoutMs?: number) => Promise<ExecResult>
-export const defaultGitRun: GitRun = (loc, args, timeoutMs) => run(gitSpec(loc, args), { timeoutMs })
+export type GitRun = (loc: Location, args: string[], timeoutMs?: number, input?: string) => Promise<ExecResult>
+export const defaultGitRun: GitRun = (loc, args, timeoutMs, input) => run(gitSpec(loc, args), { timeoutMs, input })
 
 const ok = <T>(value: T): Result<T> => ({ ok: true, value })
 const fail = <T>(error: OpError): Result<T> => ({ ok: false, error })

@@ -6,6 +6,10 @@ import type {
 } from './types.js'
 import type { AffectedSummary, SyncPlan, SyncResult, WorktreeInfo, WorktreeRemovalCheck } from './gitflow.js'
 import type { DependencyReport } from './deps.js'
+import type {
+  BranchAnalysis, BranchDeleteItem, BranchDeleteResult, CommitResult, DeleteUntrackedResult, DiffOptions, DiscardResult, FileDiff, HunkAction, RecoveryRecord,
+  StashApplyResult, StashEntry, StashPreview, StashPushResult, WorkingTree,
+} from './changes.js'
 import type { ConfigFileEnv, EnvSnapshot, PortConflict, ProcsSnapshot, StopResult } from './procs.js'
 import type { ShellOption, TerminalCloseResult, TerminalInfo, TerminalNote, TerminalOpenRequest } from './terminal.js'
 import type { ArtifactRef, AuditView, AuthState, CleanupPlan, OpenTarget, OperationResult, StorageSettings, StorageState } from './storage.js'
@@ -47,6 +51,8 @@ export type ApiEvents = {
   'terminal-data': { id: string; data: string }
   /** A terminal opened, changed state or closed (`closed` holds the id then). */
   'terminal-changed': { info: TerminalInfo | null; closed: string | null }
+  /** The watched repository's Git state changed outside GitManager (index, HEAD, refs, stash). */
+  'repo-changed': { repoId: string }
 }
 
 export interface GitManagerApi {
@@ -187,6 +193,44 @@ export interface GitManagerApi {
   runnersWorkflows(repo: string): Promise<Result<WorkflowLabelReport>>
   runnersOpen(target: RunnersOpenTarget): Promise<Result<void>>
 
+
+  /** Working-tree changes of a repository: every changed path with its staged and unstaged state. */
+  changesRead(repoId: string): Promise<Result<WorkingTree>>
+  changesDiff(repoId: string, opts: DiffOptions): Promise<Result<FileDiff>>
+  changesStage(repoId: string, paths: string[]): Promise<Result<{ staged: string[] }>>
+  changesStageAll(repoId: string): Promise<Result<{ staged: string[]; skippedConflicts: string[] }>>
+  changesUnstage(repoId: string, paths: string[]): Promise<Result<{ unstaged: string[] }>>
+  changesUnstageAll(repoId: string): Promise<Result<{ unstaged: string[] }>>
+  /** git restore --worktree of tracked files' unstaged changes. Refused unless confirm is true. */
+  changesDiscard(repoId: string, paths: string[], confirm: boolean): Promise<Result<DiscardResult>>
+  /** Brings back deleted tracked files. */
+  changesRestore(repoId: string, paths: string[]): Promise<Result<{ restored: string[] }>>
+  /** Untracked files only: to the trash, or git clean when permanent. Refused unless confirm is true. */
+  changesDeleteUntracked(repoId: string, paths: string[], opts: { confirm: boolean; permanent?: boolean }): Promise<Result<DeleteUntrackedResult>>
+  changesHunk(repoId: string, opts: { path: string; area: 'staged' | 'unstaged'; hunkId: string; action: HunkAction; confirm?: boolean }): Promise<Result<{ path: string }>>
+  changesCommit(repoId: string, message: string): Promise<Result<CommitResult>>
+  changesOpenFile(repoId: string, path: string): Promise<Result<void>>
+  /** Watches one repository's Git state (null stops); changes arrive as repo-changed events. */
+  watchRepo(repoId: string | null): Promise<Result<{ watching: boolean }>>
+
+  stashList(repoId: string): Promise<Result<StashEntry[]>>
+  stashPreview(repoId: string, index: number, sha: string): Promise<Result<StashPreview>>
+  stashDiff(repoId: string, index: number, sha: string, path: string, untracked: boolean): Promise<Result<FileDiff>>
+  stashPush(repoId: string, opts: { message?: string; includeUntracked?: boolean }): Promise<Result<StashPushResult>>
+  stashApply(repoId: string, index: number, sha: string): Promise<Result<StashApplyResult>>
+  stashPop(repoId: string, index: number, sha: string): Promise<Result<StashApplyResult>>
+  stashDrop(repoId: string, index: number, sha: string, confirm: boolean): Promise<Result<{ sha: string; recoverWith: string }>>
+
+  /** Local branches with their deletion status. With sync, fetch and prune run first (Sync with Remote). */
+  branchAnalyze(repoId: string, opts: { sync?: boolean }): Promise<Result<BranchAnalysis>>
+  /** Deletes the listed local branches, rechecking each. Never touches remote branches. */
+  branchDelete(repoId: string, items: BranchDeleteItem[]): Promise<Result<BranchDeleteResult>>
+  branchRecovery(repoId: string): Promise<Result<RecoveryRecord[]>>
+  branchRestore(repoId: string, recordId: string): Promise<Result<{ name: string }>>
+
+  /** The system clipboard's text, for pasting into a terminal (the page itself may not read the clipboard). */
+  clipboardRead(): Promise<string>
+
   on<K extends keyof ApiEvents>(event: K, cb: (payload: ApiEvents[K]) => void): () => void
 }
 
@@ -204,4 +248,5 @@ export const API_METHODS = [
   'procsScan', 'procsStop', 'procsEnv', 'configFiles', 'portConflicts', 'runnersDependencies', 'runnersEnvironment',
   'runnersState', 'runnersAuth', 'runnersScan', 'runnersCancel', 'runnersRefresh', 'runnersSaveSettings', 'runnersAddRoot', 'runnersRemoveRoot', 'runnersSshHosts', 'runnersAllowSsh', 'runnersProbe',
   'runnersRepos', 'runnersOrgs', 'runnersGroups', 'runnersPlan', 'runnersInstall', 'runnersCancelInstall', 'runnersAction', 'runnersRetire', 'runnersRestore', 'runnersCleanup', 'runnersDiagnostics', 'runnersRunsOn', 'runnersWorkflows', 'runnersOpen',
+  'changesRead', 'changesDiff', 'changesStage', 'changesStageAll', 'changesUnstage', 'changesUnstageAll', 'changesDiscard', 'changesRestore', 'changesDeleteUntracked', 'changesHunk', 'changesCommit', 'changesOpenFile', 'watchRepo', 'stashList', 'stashPreview', 'stashDiff', 'stashPush', 'stashApply', 'stashPop', 'stashDrop', 'branchAnalyze', 'branchDelete', 'branchRecovery', 'branchRestore', 'clipboardRead',
 ] as const satisfies readonly Exclude<keyof GitManagerApi, 'on'>[]

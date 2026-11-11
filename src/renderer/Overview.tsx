@@ -40,7 +40,7 @@ export function OverviewView({ model, actions }: { model: Model; actions: Action
     const hint = actions.restartHints[r.id]
     const issue = rowIssue(model, r, !!hint)
     const sync = st ? [st.behind ? `↓${st.behind}` : '', st.ahead ? `↑${st.ahead}` : ''].filter(Boolean).join(' ') : ''
-    const changed = st && !st.clean ? plural(st.changes.staged + st.changes.unstaged + st.changes.untracked + st.changes.conflicted, 'changed file') : ''
+    const changed = st && !st.clean ? plural(st.changes.files, 'changed file') : ''
     return (
       <ActionRow key={r.id} label={r.name} onOpen={() => actions.select(r.id)}
         name={<button type="button" className="gm-ov-name truncate" onClick={() => actions.select(r.id)}>{r.name}</button>}

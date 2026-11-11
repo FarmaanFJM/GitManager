@@ -33,6 +33,18 @@ async function until<T>(fn: () => Promise<T | undefined | false>, ms = 8000): Pr
 }
 
 describe.skipIf(!linux)('terminal in a repository (real pty)', () => {
+  it('uses the default shell from Settings, and falls back when that shell cannot open the folder', async () => {
+    const { b, repo } = await setup()
+    const s0 = b.store.data.settings
+    await b.saveSettings({ ...s0, terminal: { ...s0.terminal, defaultShell: 'posix' } })
+    const a = await b.terminalOpen({ target: { type: 'repo', repoId: repo.id } })
+    expect(a.ok && a.value.info.shell.id).toBe('posix')
+    await b.saveSettings({ ...s0, terminal: { ...s0.terminal, defaultShell: 'wsl:Ubuntu' } }) // WSL does not exist here
+    const c = await b.terminalOpen({ target: { type: 'repo', repoId: repo.id } })
+    expect(c.ok && c.value.info.shell.id).toBe('posix')
+  })
+
+
   it('opens in the repository root, runs commands and reports the exit', async () => {
     const { b, repo, f } = await setup()
     const shells = await b.terminalShells()

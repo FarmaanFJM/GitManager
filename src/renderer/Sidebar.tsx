@@ -46,6 +46,7 @@ export function Sidebar({ model, actions, view }: { model: Model; actions: Actio
         <Icon name="folder" size={16} />
         <span className="truncate">{r.name}</span>
         <span className="gm-nav-meta">
+          {!!st?.changes.files && <span className="num gm-nav-changes" title={`${st.changes.files} changed ${st.changes.files === 1 ? 'file' : 'files'}`} aria-label={`${st.changes.files} changed ${st.changes.files === 1 ? 'file' : 'files'}`}>±{st.changes.files}</span>}
           {meta && <span className="num" aria-label={[st?.behind ? `${st.behind} to pull` : '', st?.ahead ? `${st.ahead} to push` : ''].filter(Boolean).join(', ')}>{meta}</span>}
           {running.has(r.id) && <span className="gm-run-dot" role="img" aria-label="Services running" title="Services running" />}
         </span>

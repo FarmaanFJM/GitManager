@@ -21,7 +21,7 @@ describe('status parsing and classification', () => {
       'u UU N... 100644 100644 100644 100644 a b c conflict.txt', '? untracked.txt', ''].join('\0')
     const s = parsePorcelainV2(out)
     expect(s).toMatchObject({ branch: 'main', upstream: 'origin/main', ahead: 2, behind: 3, upstreamMissing: false })
-    expect(s.changes).toEqual({ staged: 3, unstaged: 2, untracked: 1, conflicted: 1 })
+    expect(s.changes).toEqual({ staged: 3, unstaged: 2, untracked: 1, conflicted: 1, files: 6 })
   })
 
   it('classifies every sync state', () => {
@@ -49,7 +49,7 @@ describe('status parsing and classification', () => {
 
     writeFileSync(join(f.local, 'README.md'), 'edited\n'); writeFileSync(join(f.local, 'new.txt'), 'x')
     s = await G.status(loc(f.local))
-    expect(s.ok && s.value.changes).toEqual({ staged: 0, unstaged: 1, untracked: 1, conflicted: 0 })
+    expect(s.ok && s.value.changes).toEqual({ staged: 0, unstaged: 1, untracked: 1, conflicted: 0, files: 2 })
     git(f.local, 'checkout', '--', 'README.md')
 
     commit(f.local, 'local.txt', 'l')

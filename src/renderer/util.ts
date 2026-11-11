@@ -21,8 +21,8 @@ export function changesText(s: RepoStatus): string {
   if (s.clean) return 'Clean'
   const parts: string[] = []
   if (c.conflicted) parts.push(plural(c.conflicted, 'conflict'))
-  const changed = c.staged + c.unstaged
-  if (changed) parts.push(`${changed} changed`)
+  const tracked = c.files - c.untracked - c.conflicted
+  if (tracked > 0) parts.push(`${tracked} changed`)
   if (c.untracked) parts.push(`${c.untracked} untracked`)
   return parts.join(', ')
 }

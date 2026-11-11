@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Menu, nativeTheme, Notification, session, shell, type Tray } from 'electron'
+import { app, BrowserWindow, dialog, Menu, nativeTheme, Notification, clipboard, session, shell, type Tray } from 'electron'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { startHidden, Startup, trayWanted } from '../core/startup.js'
@@ -124,6 +124,7 @@ function start() {
       openPath: p => shell.openPath(p),
       openExternal: u => shell.openExternal(u),
       trashItem: p => shell.trashItem(p),
+      readClipboardText: () => clipboard.readText(),
       settingsChanged: () => syncTray(),
       notify: (title, body) => { if (Notification.isSupported()) new Notification({ title, body, silent: true }).show() },
     }, { startup })
@@ -148,7 +149,7 @@ function start() {
   app.on('second-instance', () => showWindow())
   app.on('before-quit', e => { void confirmQuit(e) })
   app.on('window-all-closed', () => { app.quit() })
-  process.on('exit', () => { backend?.storage.stop(); backend?.services.killAllNow() })
+  process.on('exit', () => { backend?.watcher.stop(); backend?.storage.stop(); backend?.services.killAllNow() })
 
   // Read-only view of the tray for the acceptance scenarios (main process only; the page cannot reach it).
   if (process.env.GITMANAGER_TEST_HOOKS === '1') {

@@ -5,6 +5,7 @@ import type { StorageConfig } from '../shared/storage.js'
 import { emptyConfig, sanitizeConfig } from './storage/config.js'
 import type { RunnersConfig } from '../shared/runners.js'
 import { emptyRunnersConfig, sanitizeRunnersConfig } from './runners/config.js'
+import { DEFAULT_TERMINAL_PREFS } from '../shared/terminalPrefs.js'
 import type { IgnoredRepo, Location, Profile, Repo, Root, Settings } from '../shared/types.js'
 import { baseName, locationKey, sameLocation } from './paths.js'
 import * as v from './validate.js'
@@ -27,7 +28,7 @@ export type Data = {
   runners: RunnersConfig
 }
 
-export const DEFAULT_SETTINGS: Settings = { editor: 'code', chromePath: '', discoveryDepth: 3, autoDiscover: true, launchAtStartup: false, startMinimized: false, minimizeToTray: false }
+export const DEFAULT_SETTINGS: Settings = { editor: 'code', chromePath: '', discoveryDepth: 3, autoDiscover: true, launchAtStartup: false, startMinimized: false, minimizeToTray: false, terminal: DEFAULT_TERMINAL_PREFS }
 const empty = (): Data => ({ schemaVersion: 1, repos: [], roots: [], profiles: [], settings: { ...DEFAULT_SETTINGS }, ui: { selectedRepoId: null, selectedProfile: {} }, ignored: [], compareBase: {}, discovery: { lastRunAt: null }, storage: emptyConfig(), runners: emptyRunnersConfig() })
 
 export const newId = () => randomUUID().replace(/-/g, '').slice(0, 16)

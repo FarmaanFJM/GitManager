@@ -74,3 +74,22 @@ export function editorSpec(editor: string, loc: Location, os: HostOs): { file: s
   const [file, ...rest] = cmd.split(/\s+/)
   return { file, args: [...rest, loc.path], cwd: loc.path, verbatim: false }
 }
+
+/**
+ * Opens one file of a repository in the editor. The file is a repository-relative path that has been checked by the caller.
+ * Returns null when the name cannot be passed safely through the shell layer an editor shim needs (cmd.exe on Windows).
+ */
+export function editorFileSpec(editor: string, loc: Location, rel: string, os: HostOs): { file: string; args: string[]; cwd?: string; verbatim: boolean } | null {
+  const cmd = editor.trim() || 'code'
+  if (loc.kind === 'wsl') {
+    const full = `${loc.path.replace(/\/+$/, '')}/${rel.replace(/\\/g, '/')}`
+    return { file: 'wsl.exe', args: ['-d', loc.distro, '--cd', loc.path, '--exec', 'bash', '-lc', `${cmd} '${full.replace(/'/g, `'\\''`)}'`], verbatim: false }
+  }
+  const full = path.join(loc.path, rel)
+  if (os === 'windows') {
+    if (/["%^&|<>\r\n]/.test(rel)) return null
+    return { file: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', `"${cmd} "${full}""`], cwd: loc.path, verbatim: true }
+  }
+  const [file, ...rest] = cmd.split(/\s+/)
+  return { file, args: [...rest, full], cwd: loc.path, verbatim: false }
+}

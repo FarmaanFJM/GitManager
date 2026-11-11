@@ -4,6 +4,9 @@ import type { OpError, Settings, StartupState } from '../shared/types'
 import { api } from './api'
 import type { Actions, Model } from './App'
 import { Field } from './ProfileEditor'
+import { installedMonospaceFonts } from './fonts'
+import { TERMINAL_PREF_LIMITS, type TerminalPrefs } from '../shared/terminalPrefs'
+import type { ShellOption } from '../shared/terminal'
 import { ErrorBanner } from './Workspace'
 import { ago } from './util'
 import type { RunnersSettings } from '../shared/runners'
@@ -27,6 +30,9 @@ export function SettingsView({ model, actions }: { model: Model; actions: Action
   const [saved, setSaved] = useState(true)
   const [startup, setStartup] = useState<StartupState | null>(null)
   const [runners, setRunners] = useState<RunnersSettings | null>(null)
+  const [shells, setShells] = useState<ShellOption[]>([])
+  const fonts = installedMonospaceFonts()
+  useEffect(() => { void api.terminalShells().then(setShells) }, [])
   useEffect(() => { void api.runnersState().then(st => setRunners(st.config.settings)) }, [])
   const saveRunners = async (patch: Partial<RunnersSettings>) => {
     if (!runners) return
@@ -37,6 +43,18 @@ export function SettingsView({ model, actions }: { model: Model; actions: Action
   }
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => { setS(x => ({ ...x, [k]: v })); setSaved(false) }
   const windows = model.platform.os === 'windows'
+  const t = s.terminal
+  const setT = <K extends keyof TerminalPrefs>(k: K, v: TerminalPrefs[K]) => { setS(x => ({ ...x, terminal: { ...x.terminal, [k]: v } })); setSaved(false) }
+  const L = TERMINAL_PREF_LIMITS
+  const shellOptions = [{ value: 'auto', label: 'Automatic' }, ...shells.filter(x => x.available).map(x => ({ value: x.id, label: x.label })),
+    ...(t.defaultShell !== 'auto' && !shells.some(x => x.available && x.id === t.defaultShell) ? [{ value: t.defaultShell, label: `${t.defaultShell} (not available)` }] : [])]
+  const fontOptions = [{ value: '', label: 'Default' }, ...fonts.map(f => ({ value: f, label: f })), ...(t.fontFamily && !fonts.includes(t.fontFamily) ? [{ value: t.fontFamily, label: t.fontFamily }] : [])]
+  /** A number field that keeps what is typed, flags a value outside its range and snaps to the range when left. */
+  const num = (key: 'fontSize' | 'lineHeight' | 'scrollback', min: number, max: number, step: number) => (id: string) => (
+    <input id={id} className="input num" type="number" min={min} max={max} step={step} value={Number.isNaN(t[key]) ? '' : t[key]} aria-invalid={t[key] < min || t[key] > max || undefined}
+      onChange={e => setT(key, e.target.value === '' ? Number.NaN : Number(e.target.value))}
+      onBlur={() => setT(key, Math.min(max, Math.max(min, Number.isNaN(t[key]) ? min : t[key])))} />
+  )
 
   // The startup switch shows what Windows will do, read each time Settings opens (Task Manager can turn the entry off).
   useEffect(() => {
@@ -109,6 +127,22 @@ export function SettingsView({ model, actions }: { model: Model; actions: Action
                 options={[1, 2, 3, 4, 5, 6].map(n => ({ value: String(n), label: n === 1 ? '1 level' : `${n} levels` }))} />}
             </Field>
           </div>
+
+          <div className="gm-form-head">
+            <h2 className="gm-section-h">Terminal</h2>
+          </div>
+          <div className="gm-grid gm-grid-3">
+            <Field label="Default shell">{() => <Dropdown label="Default shell" value={t.defaultShell} options={shellOptions} onChange={v => setT('defaultShell', v)} />}</Field>
+            <Field label="Font">{() => <Dropdown label="Font" value={t.fontFamily} options={fontOptions} onChange={v => setT('fontFamily', v)} />}</Field>
+            <Field label="Cursor">{() => <Dropdown label="Cursor" value={t.cursorStyle} options={[{ value: 'block', label: 'Block' }, { value: 'bar', label: 'Bar' }, { value: 'underline', label: 'Underline' }]} onChange={v => setT('cursorStyle', v as TerminalPrefs['cursorStyle'])} />}</Field>
+            <Field label="Font size">{num('fontSize', L.fontSize.min, L.fontSize.max, 1)}</Field>
+            <Field label="Line height">{num('lineHeight', L.lineHeight.min, L.lineHeight.max, 0.05)}</Field>
+            <Field label="Scrollback lines">{num('scrollback', L.scrollback.min, L.scrollback.max, 100)}</Field>
+          </div>
+          <SwitchRow label="Blinking cursor" checked={t.cursorBlink} onChange={v => setT('cursorBlink', v)} />
+          <SwitchRow label="Select to copy" hint="Copies the selection when you release the mouse." checked={t.selectToCopy} onChange={v => setT('selectToCopy', v)} />
+          <SwitchRow label="Copy in context menu" hint="Right-click a selection to copy it." checked={t.contextMenuCopy} onChange={v => setT('contextMenuCopy', v)} />
+          <SwitchRow label="Right-click to paste" hint="Right-click pastes; with text selected, the menu offers Paste." checked={t.rightClickPaste} onChange={v => setT('rightClickPaste', v)} />
 
           <div className="gm-form-head">
             <h2 className="gm-section-h">Automatic discovery</h2>

@@ -1,4 +1,5 @@
 // Types shared by the main process, the preload bridge and the renderer. No runtime code.
+import type { TerminalPrefs } from './terminalPrefs.js'
 
 /** Where a repository lives and which Git executable owns it. Fixed at registration; never mixed. */
 export type Location =
@@ -34,7 +35,7 @@ export type RepoStatus = {
   ahead: number
   behind: number
   sync: SyncState
-  changes: { staged: number; unstaged: number; untracked: number; conflicted: number }
+  changes: { staged: number; unstaged: number; untracked: number; conflicted: number; files: number }
   clean: boolean
   remotes: string[]
   checkedAt: string
@@ -111,6 +112,8 @@ export type Settings = {
   startMinimized: boolean
   /** Minimizing hides the window in the notification area; the tray icon stays while GitManager runs. */
   minimizeToTray: boolean
+  /** Embedded terminal preferences (shell, font, cursor, copy and paste behaviour). */
+  terminal: TerminalPrefs
 }
 
 /** What Windows will do at the next sign-in. */
@@ -145,7 +148,12 @@ export type LogBatch = { key: string; lines: LogLine[] }
 
 export type DiscoveredRepo = { location: Location; name: string; registered: boolean; worktree?: boolean }
 
-export type OpError = { code: string; message: string; detail?: string }
+export type OpError = { code: string; message: string; detail?: string; /** What stands in the way and the actions that really resolve it; present only when it was detected. */ blocker?: Blocker }
+
+/** The only recovery actions GitManager offers. Each is attached to an error only when the detected problem is the one it resolves. */
+export type BlockerActionId = 'view-changes' | 'stash' | 'stop-services' | 'open-worktree' | 'switch-default' | 'inspect-commits' | 'force-delete' | 'retry' | 'view-conflicts'
+export type BlockerAction = { id: BlockerActionId; label: string; /** A branch, a worktree folder or similar the action applies to. */ target?: string }
+export type Blocker = { files?: string[]; services?: string[]; worktree?: string; branch?: string; actions: BlockerAction[] }
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: OpError }
 
