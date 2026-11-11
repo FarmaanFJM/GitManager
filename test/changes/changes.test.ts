@@ -108,12 +108,16 @@ describe('staging', () => {
 
   it('refuses stale or unsafe selections and treats names literally', async () => {
     const d = repo()
-    writeFileSync(join(d, 'a.txt'), 'A\n'); writeFileSync(join(d, '*.txt'), 'star'); writeFileSync(join(d, '-rf'), 'dash')
+    writeFileSync(join(d, 'a.txt'), 'A\n'); const odd = process.platform !== 'win32' // Windows cannot create a file named *.txt
+    if (odd) writeFileSync(join(d, '*.txt'), 'star')
+    writeFileSync(join(d, '-rf'), 'dash')
     for (const bad of [['../x'], ['/etc/passwd'], ['C:\\x'], ['a\nb'], [''], []]) expect(await S.stage(loc(d), bad), JSON.stringify(bad)).toMatchObject({ ok: false })
     expect(await S.stage(loc(d), ['c.txt'])).toMatchObject({ ok: false, error: { code: 'STALE_SELECTION' } })
-    expect((await S.stage(loc(d), ['*.txt'])).ok).toBe(true)
-    const t = await tree(d)
-    expect([by(t, '*.txt')?.index, by(t, 'a.txt')?.index]).toEqual(['added', null]) // the pattern did not match a.txt
+    if (odd) {
+      expect((await S.stage(loc(d), ['*.txt'])).ok).toBe(true)
+      const t = await tree(d)
+      expect([by(t, '*.txt')?.index, by(t, 'a.txt')?.index]).toEqual(['added', null]) // the pattern did not match a.txt
+    }
     expect((await S.stage(loc(d), ['-rf'])).ok).toBe(true)
     expect(safeRelativePath('dir/..x/file')).toBe(true)
     expect(safeRelativePath('dir/../x')).toBe(false)
