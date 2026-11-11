@@ -27,7 +27,8 @@ mk('feature/merged-a', 'a.txt', true); git(repo, 'merge', '-q', '--ff-only', 'fe
 mk('feature/merged-b', 'b.txt', false); git(repo, 'merge', '-q', '--no-ff', '-m', 'merge b', 'feature/merged-b')
 mk('feature/open', 'o.txt', true); mk('feature/wip-only-here', 'w.txt', false); git(repo, 'push', '-q', 'origin', 'main')
 
-const env = { ...process.env, GITMANAGER_DATA_DIR: join(work, 'data'), GITMANAGER_HOME: join(work, 'repos') }
+// The app's own Git commands (commit, stash) need an identity; CI machines have none configured, so give it the same one the script uses.
+const env = { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@x.io', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@x.io', GITMANAGER_DATA_DIR: join(work, 'data'), GITMANAGER_HOME: join(work, 'repos') }
 let n = 0, failed = 0
 const check = (ok, name, detail = '') => { n++; if (!ok) failed++; console.log(`${ok ? 'PASS' : 'FAIL'} ${String(n).padStart(2)} ${name}${detail ? `: ${detail}` : ''}`) }
 let app, page
