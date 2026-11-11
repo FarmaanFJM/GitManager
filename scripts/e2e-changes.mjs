@@ -43,6 +43,8 @@ const tab = name => page.getByRole('tab', { name: new RegExp(`^${name}`) }).clic
 const clip = () => app.evaluate(({ clipboard }) => clipboard.readText())
 const setClip = t => app.evaluate(({ clipboard }, t) => clipboard.writeText(t), t)
 const wait = ms => page.waitForTimeout(ms)
+/** Polls a condition for up to `ms` (CI machines are slower than a laptop). */
+const until = async (fn, ms = 10000) => { const end = Date.now() + ms; for (;;) { try { if (await fn()) return true } catch { /* not yet */ } if (Date.now() > end) return false; await new Promise(r => setTimeout(r, 200)) } }
 /** Empties the shell's input line (end of line, then delete to the start). */
 const clearLine = async () => { await page.keyboard.press('Control+E'); await page.keyboard.press('Control+U'); await page.waitForTimeout(150) }
 const flat = async () => (await rowsText()).replace(/\n/g, '')
@@ -143,7 +145,8 @@ try {
   await page.locator('.gm-chg-actions').getByRole('button', { name: 'Stage', exact: true }).click(); await wait(700)
   await page.getByLabel('Commit message').fill('Add new file\n\nfrom the Changes view')
   await page.getByRole('button', { name: /^Commit/ }).click(); await wait(1200)
-  check(git(repo, 'log', '-1', '--format=%s') === 'Add new file' && git(repo, 'status', '--porcelain') === '', 'Commit creates a commit from the staged changes')
+  const committed = await until(() => git(repo, 'log', '-1', '--format=%s') === 'Add new file' && git(repo, 'status', '--porcelain') === '')
+  check(committed, 'Commit creates a commit from the staged changes', `${git(repo, 'log', '-1', '--format=%s')} | status: ${JSON.stringify(git(repo, 'status', '--porcelain'))} | git ${git(repo, '--version')}`)
   await shot('05-after-commit')
 
   /* ---------------------------------------------------------------- stash */
@@ -157,7 +160,8 @@ try {
   check(git(repo, 'stash', 'list').includes('half done') && !existsSync(join(repo, 'scratch.txt')) && git(repo, 'status', '--porcelain') === '', 'Stash changes (with message and untracked files) works')
   await page.locator('.gm-stash-main', { hasText: 'half done' }).click(); await page.locator('.gm-stash-file').first().waitFor()
   await page.locator('.gm-stash-file', { hasText: 'app.ts' }).click(); await page.locator('.gm-dl-add').first().waitFor()
-  check(await page.locator('.gm-stash-file').count() === 2, 'the stash preview lists its tracked and untracked files')
+  const listedOk = await until(async () => (await page.locator('.gm-stash-file').count()) === 2)
+  check(listedOk, 'the stash preview lists its tracked and untracked files', `${(await page.locator('.gm-stash-file').allInnerTexts()).join(' | ')} | stash^3: ${(() => { try { return git(repo, 'ls-tree', '-r', '--name-only', 'stash@{0}^3') } catch (e) { return 'none' } })()}`)
   await shot('06-stash-preview')
   await page.getByRole('button', { name: 'Actions for stash@{0}' }).click(); await page.getByRole('menuitem', { name: 'Apply' }).click(); await wait(1200)
   check(existsSync(join(repo, 'scratch.txt')) && git(repo, 'stash', 'list') !== '', 'Apply restores the changes and keeps the stash')
