@@ -54,9 +54,15 @@ async function drag(r1, c1, r2, c2) {
 const typeLine = async s => { await page.keyboard.type(s + '\n'); await page.waitForTimeout(350) }
 async function openTerminal(repoName) {
   await page.locator('.gm-side-foot .nav-item', { hasText: 'Repositories' }).click()
+  const before = await page.locator('.gm-dock .xterm').count()
   await page.getByRole('button', { name: new RegExp(`^Terminal, ${repoName}`) }).click()
-  await page.waitForFunction(() => document.querySelectorAll('.gm-dock .xterm').length > 0 && /[#$%>]\s*$/.test(document.querySelector('.gm-dock .xterm-rows')?.textContent ?? ''), null, { timeout: 15000 })
-  await page.locator('.gm-dock .xterm').last().click()
+  // the new tab's pane exists, is the visible one (earlier panes are hidden) and its shell has printed a prompt
+  await page.waitForFunction(n => {
+    const panes = [...document.querySelectorAll('.gm-dock .xterm')]
+    const shown = panes.filter(p => p.offsetParent !== null)
+    return panes.length > n && shown.length === 1 && /[#$%>]\s*$/.test(shown[0].querySelector('.xterm-rows')?.textContent ?? '')
+  }, before, { timeout: 30000 })
+  await page.locator('.gm-dock .xterm').filter({ visible: true }).last().click()
 }
 
 try {
@@ -120,8 +126,8 @@ try {
   // 7. same preference in another tab and another repository
   await setSelectToCopy(false) // off, then check it applies to new tabs and other repositories' terminals
   await page.getByRole('button', { name: 'New tab' }).click()
-  await page.waitForTimeout(800)
-  await page.locator('.gm-dock .xterm').last().click()
+  await page.waitForFunction(() => [...document.querySelectorAll('.gm-dock .xterm')].filter(p => p.offsetParent !== null).some(p => /[#$%>]\s*$/.test(p.querySelector('.xterm-rows')?.textContent ?? '')), null, { timeout: 30000 })
+  await page.locator('.gm-dock .xterm').filter({ visible: true }).last().click()
   await setClip('NEW-TAB-SENTINEL'); await page.keyboard.type('echo tabtext\n'); await page.waitForTimeout(400)
   const tl = await lineOf('tabtext'); await drag(tl, 0, tl, 4)
   check((await clip()) === 'NEW-TAB-SENTINEL', 'a new tab follows the same preference (off)')
