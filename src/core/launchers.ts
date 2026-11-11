@@ -85,7 +85,7 @@ export function editorFileSpec(editor: string, loc: Location, rel: string, os: H
     const full = `${loc.path.replace(/\/+$/, '')}/${rel.replace(/\\/g, '/')}`
     return { file: 'wsl.exe', args: ['-d', loc.distro, '--cd', loc.path, '--exec', 'bash', '-lc', `${cmd} '${full.replace(/'/g, `'\\''`)}'`], verbatim: false }
   }
-  const full = path.join(loc.path, rel)
+  const full = (os === 'windows' ? path.win32 : path.posix).join(loc.path, rel)
   if (os === 'windows') {
     if (/["%^&|<>\r\n]/.test(rel)) return null
     return { file: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', `"${cmd} "${full}""`], cwd: loc.path, verbatim: true }
