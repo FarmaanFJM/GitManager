@@ -1,11 +1,11 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { BranchCleaner } from '../../src/core/git/branchClean.js'
 import { RecoveryLog } from '../../src/core/git/recovery.js'
 import { defaultGitRun } from '../../src/core/git/ops.js'
 import type { Location } from '../../src/shared/types.js'
-import { commit, git, isolateGitConfig, remoteFixture } from '../helpers.js'
+import { commit, git, isolateGitConfig, remoteFixture, tempDir } from '../helpers.js'
 
 beforeAll(isolateGitConfig)
 const loc = (path: string): Location => ({ kind: 'native', path })
@@ -174,7 +174,7 @@ describe('deletion', () => {
   })
 
   it('the recovery log persists between runs', () => {
-    const dir = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'gm-rec-')); const file = join(dir, 'rec.json')
+    const t = tempDir('gm-rec-'); cleanups.push(t.cleanup); const file = join(t.dir, 'rec.json')
     const a = new RecoveryLog(file); a.add({ repoId: 'r', name: 'x', sha: 'b'.repeat(40), forced: false, recoverWith: `git branch x ${'b'.repeat(40)}` })
     expect(new RecoveryLog(file).list('r')).toHaveLength(1)
     writeFileSync(file, '{ not json'); expect(new RecoveryLog(file).list('r')).toEqual([])
